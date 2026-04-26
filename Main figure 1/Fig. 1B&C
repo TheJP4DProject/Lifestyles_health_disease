@@ -1,0 +1,222 @@
+
+library(openxlsx)
+library(ggplot2)
+library(dplyr)
+library(grid)
+library(gridExtra)
+
+INPUT_DIR <- "data"
+
+metadata <- read.csv(file.path(INPUT_DIR, "metadata.csv"), row.names = "ID")
+
+cytokine <- as.data.frame(read.xlsx(
+  file.path(INPUT_DIR, "cytokine.xlsx"),
+  rowNames = TRUE, check.names = FALSE, sep.names = " ", sheet = 1
+))
+rownames(cytokine) <- cytokine$ID
+rownames(cytokine) <- sapply(rownames(cytokine), function(x) {
+  v <- suppressWarnings(as.numeric(x)); if (!is.na(v)) as.character(v) else x
+})
+cytokine <- cytokine[, -c(1:3)]
+
+metabo <- as.data.frame(read.xlsx(
+  file.path(INPUT_DIR, "metabolite.xlsx"),
+  check.names = FALSE, sep.names = " "
+))
+rownames(metabo) <- metabo$ID
+metabo <- metabo[, -c(1:3)]
+
+target_cytokines <- c("TNF_alpha","IL8_CXCL8","CCL2","IFN_gamma","CXCL9","IP10_CXCL10","CXCL11")
+target_metabos   <- c("Butyrate","Acetate","Propionate")
+
+COLOR_HEALTH1 <- "#90CAD0"
+COLOR_HEALTH0 <- "#FAB1AD"
+
+sig_label <- function(p) {
+  if (is.na(p)) return("ns")
+  if (p < 0.001) return("***")
+  if (p < 0.01) return("**")
+  if (p < 0.05) return("*")
+  "ns"
+}
+
+make_panel <- function(tgt, df_plot, p_val) {
+
+  y_upper <- quantile(df_plot$value, 0.95, na.rm = TRUE)
+  y_lower <- min(df_plot$value, na.rm = TRUE)
+
+  violin_plot <- ggplot() +
+    geom_violin(
+      data = subset(df_plot, health == 1),
+      aes(x = 1, y = value),
+      fill = COLOR_HEALTH1, color = NA,
+      position = position_nudge(x = -0.12),
+      width = 0.4, alpha = 0.6
+    ) +
+    geom_violin(
+      data = subset(df_plot, health == 0),
+      aes(x = 1, y = value),
+      fill = COLOR_HEALTH0, color = NA,
+      position = position_nudge(x = 0.12),
+      width = 0.4, alpha = 0.6
+    ) +
+    geom_boxplot(
+      data = subset(df_plot, health == 1),
+      aes(x = 1, y = value),
+      width = 0.15, position = position_nudge(x = -0.12),
+      outlier.shape = NA, linewidth = 0.3
+    ) +
+    geom_boxplot(
+      data = subset(df_plot, health == 0),
+      aes(x = 1, y = value),
+      width = 0.15, position = position_nudge(x = 0.12),
+      outlier.shape = NA, linewidth = 0.3
+    ) +
+    annotate("text",
+      x = 1, y = y_upper * 0.95,
+      label = sig_label(p_val), size = 5 / 2.845
+    ) +
+    scale_y_log10() +
+    scale_x_continuous(breaks = NULL) +
+    coord_cartesian(ylim = c(y_lower, y_upper)) +
+    theme_minimal(base_size = 5) +
+    theme(
+      axis.title = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text = element_text(size = 5),
+      legend.position = "none",
+      panel.grid.minor = element_blank(),
+      panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.4)
+    )
+
+  title_grob <- grobTree(
+    rectGrob(gp = gpar(fill = "#E6E6E6", col = "black", lwd = 0.6)),
+    textGrob(tgt, gp = gpar(fontsize = 5, fontface = "bold"))
+  )
+
+  p_grob <- grobTree(
+    rectGrob(gp = gpar(fill = "#FFFFFF", col = "black", lwd = 0.6)),
+    textGrob(
+      paste0("p=", formatC(p_val, digits = 2, format = "e")),
+      gp = gpar(fontsize = 5)
+    )
+  )
+
+  arrangeGrob(title_grob, p_grob, violin_plot,
+              ncol = 1, heights = c(0.12, 0.10, 0.78))
+}
+
+plot_violin <- function(data_df, metadata_df, targets) {
+
+  targets_exist <- intersect(targets, colnames(data_df))
+  if (length(targets_exist) == 0) return(NULL)
+
+  common_ids <- intersect(rownames(data_df), rownames(metadata_df))
+  data_df <- data_df[common_ids, ]
+  health_vec <- metadata_df[common_ids, "General.Health"]
+
+  plot_list <- list()
+
+  for (tgt in targets_exist) {
+
+    vals <- data_df[, tgt]
+    min_nz <- min(vals[vals > 0], na.rm = TRUE)
+    vals[vals == 0] <- min_nz / 2
+
+    df_plot <- data.frame(value = vals, health = health_vec) %>%
+      filter(!is.na(value) & !is.na(health) & value > 0)
+
+    p_val <- tryCatch(
+      wilcox.test(
+        df_plot$value[df_plot$health == 0],
+        df_plot$value[df_plot$health == 1]
+      )$p.value,
+      error = function(e) NA
+    )
+
+    plot_list[[tgt]] <- make_panel(tgt, df_plot, p_val)
+  }
+
+  plot_list
+}
+
+plots_cytokine <- plot_violin(cytokine, metadata, target_cytokines)
+plots_metabo   <- plot_violin(metabo, metadata, target_metabos)
+
+legend_grob <- grobTree(
+  rectGrob(gp = gpar(fill = "white", col = "black", lwd = 0.8)),
+  textGrob("Legend", gp = gpar(fontsize = 6, fontface = "bold"),
+           x = 0.1, y = 0.85, just = c(0, 1)),
+  rectGrob(x = 0.1, y = 0.65, width = 0.12, height = 0.12,
+           gp = gpar(fill = COLOR_HEALTH0, col = "black", lwd = 0.4)),
+  textGrob("Health = 0", gp = gpar(fontsize = 5),
+           x = 0.28, y = 0.71, just = c(0, 0.5)),
+  rectGrob(x = 0.1, y = 0.45, width = 0.12, height = 0.12,
+           gp = gpar(fill = COLOR_HEALTH1, col = "black", lwd = 0.4)),
+  textGrob("Health = 1", gp = gpar(fontsize = 5),
+           x = 0.28, y = 0.51, just = c(0, 0.5))
+)
+
+row1 <- arrangeGrob(grobs = plots_cytokine[1:4], ncol = 4)
+row2 <- arrangeGrob(grobs = c(plots_cytokine[5:7], list(legend_grob)), ncol = 4)
+row3 <- arrangeGrob(grobs = plots_metabo, ncol = 4)
+
+pdf("output_figure.pdf", width = 2.5, height = 3)
+grid.arrange(row1, row2, row3, nrow = 3)
+dev.off()
+
+calc_summary <- function(data_df, metadata_df, targets) {
+
+  targets_exist <- intersect(targets, colnames(data_df))
+  if (length(targets_exist) == 0) return(NULL)
+
+  common_ids <- intersect(rownames(data_df), rownames(metadata_df))
+  data_df <- data_df[common_ids, ]
+  health_vec <- metadata_df[common_ids, "General.Health"]
+
+  res_list <- list()
+
+  for (tgt in targets_exist) {
+
+    vals <- data_df[, tgt]
+    min_nz <- suppressWarnings(min(vals[vals > 0], na.rm = TRUE))
+    vals[vals == 0] <- min_nz / 2
+
+    df <- data.frame(value = vals, health = health_vec) %>%
+      filter(!is.na(value) & !is.na(health) & value > 0)
+
+    df0 <- df[df$health == 0, "value"]
+    df1 <- df[df$health == 1, "value"]
+
+    med0 <- median(df0, na.rm = TRUE)
+    med1 <- median(df1, na.rm = TRUE)
+
+    p_val <- tryCatch(wilcox.test(df0, df1)$p.value,
+                      error = function(e) NA)
+
+    log2fc <- ifelse(
+      is.na(med0) | is.na(med1) | med0 <= 0 | med1 <= 0,
+      NA, log2(med1 / med0)
+    )
+
+    res_list[[tgt]] <- data.frame(
+      Feature = tgt,
+      median_Health0 = med0,
+      sd_Health0 = sd(df0, na.rm = TRUE),
+      n_Health0 = sum(!is.na(df0)),
+      median_Health1 = med1,
+      sd_Health1 = sd(df1, na.rm = TRUE),
+      n_Health1 = sum(!is.na(df1)),
+      log2FC_Health1_vs_0 = log2fc,
+      p_value = p_val
+    )
+  }
+
+  do.call(rbind, res_list)
+}
+
+summary_cytokine <- calc_summary(cytokine, metadata, target_cytokines)
+summary_metabo   <- calc_summary(metabo, metadata, target_metabos)
+
+write.csv(summary_cytokine, "cytokine_summary.csv", row.names = FALSE)
+write.csv(summary_metabo,   "metabo_summary.csv",   row.names = FALSE)
