@@ -1,0 +1,156 @@
+
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+
+causal_f <- read.csv("data/causal_input.csv")
+causal_f = causal_f[(causal_f$Avg_causal_mediation_qval<0.05)&(causal_f$Inv_Avg_causal_mediation_pval>=0.05),]
+
+category_map <- data.frame(
+  Disease  = c("General health",
+               "IBD", "IBS", "Liver cirrhosis",
+               "T2D", "Dyslipidemia", "Hypertension", "Hyperuricemia",
+               "IHD", "Heart failure", "Stroke",
+               "Depression",
+               "Rheumatoid arthritis", "Collagen disease",
+               "Asthma", "COPD"),
+  Category = c("General health",
+               "Digestive", "Digestive", "Digestive",
+               "Metabolic", "Metabolic", "Metabolic", "Metabolic",
+               "Cardiovascular", "Cardiovascular", "Cardiovascular",
+               "Psychiatric",
+               "Immune", "Immune",
+               "Respiratory", "Respiratory"),
+  stringsAsFactors = FALSE
+)
+
+category_order <- c("General health", "Digestive", "Metabolic",
+                    "Cardiovascular", "Psychiatric", "Immune", "Respiratory")
+
+category_colors <- c(
+  "General health"          = "#fb9a99",
+  "Digestive"               = "#CCBE93",
+  "Metabolic"               = "#a6cee3",
+  "Cardiovascular"          = "#1f78b4",
+  "Psychiatric"             = "#b2df8a",
+  "Immune"                  = "#18BC9C",
+  "Respiratory"             = "#fdbf6f"
+)
+
+name_map <- c(
+  "Vegetables" = "Vegetables",
+  "Fruit" = "Fruits",
+  "Mushroom" = "Mushrooms",
+  "Coffee" = "Coffee",
+  "Green.tea" = "Green tea",
+  "Vinegar" = "Vinegar",
+  "Tofu" = "Tofu",
+  "Natto" = "Natto",
+  "Miso" = "Miso",
+  "Pickles" = "Pickles",
+  "Kimuchi" = "Kimchi",
+  "Yogurt" = "Yogurt",
+  "Milk" = "Milk",
+  "Meat" = "Meat",
+  "Processed.meat" = "Processed meat",
+  "Seafood" = "Seafood",
+  "Egg" = "Eggs",
+  "Dressing" = "Dressing",
+  "Rice" = "Rice",
+  "Bread" = "Bread",
+  "Noodle" = "Noodles",
+  "Soft.drinks" = "Soft drinks",
+  "Alcohol" = "Alcohol",
+  "Current.smoking" = "Smoking",
+  "Strong.active" = "Strong physical activity",
+  "Moderate.active" = "Moderate physical activity",
+  "Weak.active" = "Weak physical activity",
+  "Sitting.down9.5h" = "Sitting down ≥ 9.5h",
+  "General.Health" = "General health",
+  "IBD" = "IBD",
+  "IBS" = "IBS",
+  "Liver.cirrhosis" = "Liver cirrhosis",
+  "T2D" = "T2D",
+  "Dyslipidemia" = "Dyslipidemia",
+  "Hypertension" = "Hypertension",
+  "Hyperuricemia" = "Hyperuricemia",
+  "ACS" = "IHD",
+  "CHF" = "Heart failure",
+  "Stroke" = "Stroke",
+  "Depression" = "Depression",
+  "Rheumatoid.arthritis" = "Rheumatoid arthritis",
+  "Collagen.disease" = "Collagen disease",
+  "Asthma" = "Asthma",
+  "COPD" = "COPD"
+)
+
+causal_f$Disease <- name_map[causal_f$Disease]
+causal_f$Treat <- name_map[causal_f$Treat]
+
+count_df <- causal_f %>%
+  count(Disease, name = "n") %>%
+  left_join(category_map, by = "Disease") %>%
+  mutate(Category = ifelse(is.na(Category), "Other", Category))
+
+r2_raw <- read.csv("data/beta_r2.csv")
+
+r2_motu <- r2_raw %>% filter(type == "MOTU")
+
+r2_motu <- r2_motu %>%
+  mutate(Disease = name_map[metadata]) %>%
+  filter(!is.na(Disease)) %>%
+  group_by(Disease) %>%
+  summarise(R2 = mean(R2, na.rm = TRUE), .groups = "drop")
+
+plot_df <- count_df %>%
+  left_join(r2_motu, by = "Disease") %>%
+  filter(!is.na(R2))
+
+p <- ggplot(plot_df, aes(x = R2, y = n, color = Category, label = Disease)) +
+  geom_smooth(
+    method   = "lm",
+    color    = "grey40",
+    fill     = "grey85",
+    linewidth = 0.5,
+    se       = TRUE,
+    inherit.aes = FALSE,
+    aes(x = R2, y = n)
+  ) +
+  geom_point(size = 1, alpha = 0.85) +
+  scale_color_manual(values = category_colors) +
+  labs(
+    x     = expression(R^2 ~ "(MOTU beta-diversity)"),
+    y     = "Causal mediation count",
+    color = "Category"
+  ) +
+  annotate(
+    "text",
+    x     = max(plot_df$R2, na.rm = TRUE),
+    y     = max(plot_df$n,  na.rm = TRUE),
+    label = {
+      sp <- cor.test(plot_df$R2, plot_df$n, method = "spearman", exact = FALSE)
+      paste0("rho = ", round(sp$estimate, 3),
+             "\np = ", signif(sp$p.value, 2))
+    },
+    hjust  = 1, vjust = 1,
+    size   = 2.5,
+    color  = "black"
+  ) +
+  theme_classic(base_size = 5) +
+  theme(
+    panel.border    = element_rect(color = "grey70", fill = NA, linewidth = 0.5),
+    legend.title    = element_text(size = 5),
+    legend.text     = element_text(size = 5),
+    legend.key.size = unit(4, "pt"),
+    axis.text       = element_text(size = 5)
+  )
+
+ggsave("output.pdf", p, width = 2.25, height = 1.5, useDingbats = FALSE)
+
+out_df <- plot_df %>%
+  select(Disease, Category, causal_count = n, R2) %>%
+  filter(Disease %in% disease_order) %>%
+  mutate(Disease = factor(Disease, levels = disease_order)) %>%
+  arrange(Disease)
+
+write.csv(out_df, "output.csv", row.names = FALSE)
