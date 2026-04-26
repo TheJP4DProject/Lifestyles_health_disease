@@ -1,0 +1,239 @@
+
+library(dplyr)
+library(grid)
+library(openxlsx)
+
+ordered_df <- data.frame(
+  group = c(
+    "Vegetables", "Fruits", "Mushrooms",
+    "Coffee", "Green tea", "Vinegar",
+    "Tofu", "Natto", "Miso",
+    "Pickles", "Kimchi", "Yogurt",
+    "Milk", "Meat", "Processed meat", "Seafood",
+    "Eggs", "Dressing", "Rice", "Bread", "Noodles", "Soft drinks",
+    "Alcohol", "Smoking", "Weak physical activity","Moderate physical activity","Strong physical activity",
+    "Sitting down ≥ 9.5h"
+  ),
+  annotation = c(
+    rep("Plant-based diets", times = 3),
+    rep("Polyphenol-rich beverages", times = 2),
+    rep("-", times = 2),
+    rep("Fermented diets", times = 4),
+    rep("Dairy product", times = 2),
+    rep("Animal-based diets", times = 5),
+    rep("Starch/Sugar-rich diets", times = 4),
+    rep("Alcohol/Smoking", times = 2),
+    rep("Exercise", times = 4)
+  ),
+  color = c(
+    rep("#66c2a5", times = 3),
+    rep("#b3b3b3", times = 2),
+    rep("white", times = 2),
+    rep("#fc8d62", times = 4),
+    rep("#8da0cb", times = 2),
+    rep("#e78ac3", times = 5),
+    rep("#a6d854", times = 4),
+    rep("#ffd92f", times = 2),
+    rep("#e5c494", times = 4)
+  ),
+  stringsAsFactors = FALSE
+)
+
+causal <- read.xlsx("data/input.xlsx",
+                    sheet="S9 MOTU",
+                    check.names = F,
+                    sep.names = " ")
+
+colnames(causal)[6] <- "Mediator"
+causal_f <- causal
+
+disease_order <- c("General health", "Inflammatory Bowel Disease (IBD)", "Irritable Bowel Syndrome (IBS)", "Type 2 Diabetes (T2D)",
+                   "Dyslipidemia" ,"Hypertension", 
+                   "Depression", "Rheumatoid arthritis")
+
+titles_vec <- c("General health", "IBD", "IBS", "T2D",
+                "Dyslipidemia" ,"Hypertension", 
+                "Depression","Rheumatoid arthritis")
+
+meta_colname <- c(
+  "General health" = "General.Health",
+  "Inflammatory Bowel Disease (IBD)" = "IBD",
+  "Irritable Bowel Syndrome (IBS)" = "IBS",
+  "Type 2 Diabetes (T2D)" = "T2D",
+  "Dyslipidemia" = "Dyslipidemia",
+  "Hypertension" = "Hypertension",
+  "Depression" = "Depression",
+  "Rheumatoid arthritis"="Rheumatoid.arthritis"
+)
+
+meta <- read.csv("data/meta.csv", stringsAsFactors = FALSE)
+meta <- meta[!is.na(meta$METAF), ]
+
+get_n <- function(dis) {
+  col <- meta_colname[dis]
+  if (!is.na(col) && col %in% colnames(meta)) {
+    sum(meta[[col]] == 1, na.rm = TRUE)
+  } else {
+    NA
+  }
+}
+
+ordered_exp <- ordered_df$group[ordered_df$group %in% unique(causal_f$Exposure)]
+ordered_info <- ordered_df[match(ordered_exp, ordered_df$group), ]
+
+group_gap_units <- 0.8
+bar_height_units <- 1
+
+annotation_vec <- ordered_info$annotation
+
+y_units <- numeric(length(ordered_exp))
+current_y <- 0
+
+for (i in seq_along(ordered_exp)) {
+  if (i == 1) {
+    current_y <- 0
+  } else {
+    current_y <- current_y + bar_height_units
+    if (annotation_vec[i] != annotation_vec[i - 1]) {
+      current_y <- current_y + group_gap_units
+    }
+  }
+  y_units[i] <- current_y
+}
+
+total_y_units <- max(y_units) + bar_height_units
+n_treat <- length(ordered_exp)
+n_dis <- length(disease_order)
+
+group_break_idx <- which(annotation_vec[-1] != annotation_vec[-length(annotation_vec)])
+
+Count_pos <- causal_f %>% filter(Forward_Avg_causal_mediation_effect > 0)
+Count_neg <- causal_f %>% filter(Forward_Avg_causal_mediation_effect < 0)
+
+get_counts <- function(df, dis) {
+  tmp <- df %>% filter(Outcome == dis) %>% count(Exposure)
+  sapply(ordered_exp, function(e) {
+    idx <- which(tmp$Exposure == e)
+    if (length(idx) == 0) 0 else tmp$n[idx]
+  })
+}
+
+xlimit_per_dis <- sapply(disease_order, function(v) {
+  m <- max(get_counts(Count_pos, v), get_counts(Count_neg, v))
+  ceiling(m / 10) * 10
+})
+
+col_neg <- "#87BFDE"
+col_pos <- "#F4A460"
+
+title_h <- 0.13
+axis_h <- 0.10
+legend_h <- 0.10
+plot_h <- 1 - title_h - axis_h - legend_h
+
+left_margin <- 0.01
+text_w <- 0.16
+square_w <- 0.012
+gap_text_sq <- 0.004
+gap_sq_plot <- 0.008
+
+label_w <- left_margin + text_w + gap_text_sq + square_w + gap_sq_plot
+plot_area_w <- 1 - label_w - 0.02
+
+unit_y <- plot_h / total_y_units
+bar_gap <- 0.18
+
+unit_w <- plot_area_w / (sum(xlimit_per_dis) * 2)
+
+x_starts <- numeric(n_dis)
+x_starts[1] <- label_w
+for (d in 2:n_dis) {
+  x_starts[d] <- x_starts[d - 1] + xlimit_per_dis[d - 1] * 2 * unit_w
+}
+
+pdf("output.pdf", width = 8, height = 4.2)
+grid.newpage()
+
+text_right_x <- left_margin + text_w
+square_left_x <- text_right_x + gap_text_sq
+
+for (i in seq_len(n_treat)) {
+
+  y_bottom <- legend_h + axis_h + (total_y_units - y_units[i] - bar_height_units) * unit_y
+  y_top <- legend_h + axis_h + (total_y_units - y_units[i]) * unit_y
+  y_center <- (y_top + y_bottom) / 2
+
+  fill_col <- ordered_info$color[i]
+  border_col <- ifelse(fill_col == "white", "grey50", NA)
+
+  grid.text(
+    ordered_exp[i],
+    x = text_right_x,
+    y = y_center,
+    just = "right",
+    gp = gpar(fontsize = 5)
+  )
+
+  grid.rect(
+    x = square_left_x,
+    y = y_center,
+    width = square_w,
+    height = (y_top - y_bottom) * 0.7,
+    just = c("left", "center"),
+    gp = gpar(fill = fill_col, col = border_col, lwd = 0.5)
+  )
+}
+
+for (d in seq_len(n_dis)) {
+
+  v <- disease_order[d]
+  title <- titles_vec[d]
+  xlimit <- xlimit_per_dis[d]
+  n_val <- get_n(v)
+
+  neg_counts <- get_counts(Count_neg, v)
+  pos_counts <- get_counts(Count_pos, v)
+
+  x_left_start <- x_starts[d]
+  dis_w <- xlimit * 2 * unit_w
+  x_mid <- x_left_start + xlimit * unit_w
+  x_right_end <- x_left_start + dis_w
+
+  title_label <- if (!is.na(n_val)) {
+    paste0(title, "\nn = ", formatC(n_val, format = "d", big.mark = ","))
+  } else {
+    title
+  }
+
+  grid.text(
+    title_label,
+    x = (x_left_start + x_right_end) / 2,
+    y = 1 - title_h / 2,
+    gp = gpar(fontsize = 5)
+  )
+
+  grid.rect(
+    x = x_left_start,
+    y = legend_h + axis_h,
+    width = dis_w,
+    height = plot_h,
+    just = c("left", "bottom"),
+    gp = gpar(fill = NA, col = "grey60", lwd = 0.6)
+  )
+
+  grid.lines(
+    x = c(x_mid, x_mid),
+    y = c(legend_h + axis_h, legend_h + axis_h + plot_h),
+    gp = gpar(col = "grey60", lty = "dashed")
+  )
+
+  grid.text("-", x = x_left_start, y = legend_h + axis_h / 2, just = "left", gp = gpar(fontsize = 5))
+  grid.text("0", x = x_mid, y = legend_h + axis_h / 2, gp = gpar(fontsize = 5))
+  grid.text(as.character(xlimit), x = x_right_end, y = legend_h + axis_h / 2, just = "right", gp = gpar(fontsize = 5))
+}
+
+dev.off()
+
+write.csv(result_df, "output.csv", row.names = FALSE)
+
+message("Done: output")
