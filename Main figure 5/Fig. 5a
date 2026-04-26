@@ -1,0 +1,110 @@
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(openxlsx)
+library(scales)
+library(patchwork)
+
+df <- read.xlsx("Supplementary Tables_260405.xlsx",
+                sheet="KEGGID_enrich_20260115_FDR01sel",
+                check.names = F,
+                sep.names = " ")
+
+name_map <- c(
+  "Vegetables" = "Vegetables","Fruits" = "Fruits","Mushrooms" = "Mushrooms",
+  "Coffee" = "Coffee","Green tea" = "Green tea","Vinegar" = "Vinegar",
+  "Natto" = "Natto","Tofu" = "Tofu","Miso" = "Miso","Pickles" = "Pickles",
+  "Kimchi" = "Kimchi","Yogurt" = "Yogurt","Milk" = "Milk","Meat" = "Meat",
+  "Processed meat" = "Processed meat","Seafood" = "Seafood","Eggs" = "Eggs",
+  "Dressing" = "Dressing","Rice" = "Rice","Bread" = "Bread","Noodles" = "Noodles",
+  "Soft drinks" = "Soft drinks","Alcohol" = "Alcohol",
+  "Smoking" = "Smoking","Strong physical activity" = "Strong physical activity",
+  "Moderate physical activity" = "Moderate physical activity",
+  "Weak physical activity" = "Weak physical activity",
+  "Sitting down ≥ 9.5h" = "Sitting down ≥ 9.5h",
+  "General health" = "General health",
+  "Inflammatory Bowel Disease (IBD)" = "IBD",
+  "Irritable Bowel Syndrome (IBS)" = "IBS",
+  "Liver cirrhosis" = "Liver cirrhosis",
+  "Type 2 Diabetes (T2D)" = "T2D",
+  "Dyslipidemia" = "Dyslipidemia",
+  "Hypertension" = "Hypertension",
+  "Hyperuricemia" = "Hyperuricemia",
+  "Ischemic Heart Disease (IHD)" = "IHD",
+  "Heart failure" = "Heart failure",
+  "Stroke" = "Stroke",
+  "Depression" = "Depression",
+  "Rheumatoid arthritis" = "Rheumatoid arthritis",
+  "Collagen disease" = "Collagen disease",
+  "Asthma" = "Asthma",
+  "Chronic Obstructive Pulmonary Disease (COPD)" = "COPD"
+)
+
+df$metadata <- name_map[df$metadata]
+df <- df[df$metadata %in% names(name_map)[1:28], ]
+
+key <- c("Glycosaminoglycan degradation",
+         "Other glycan degradation")
+
+df <- df[df$Description %in% key, ]
+df <- df[df$Erich == "up_regulated", ]
+df <- df[df$FDR < 0.05, ]
+
+descriptions <- key
+
+plot_df <- df %>%
+  mutate(
+    qvalue = -log10(FDR),
+    metadata_plot = ifelse(metadata == "Alcohol", "Alcohol", "Other factors"),
+    label = metadata,
+    label_color = ifelse(metadata == "Alcohol", "#FF69B4", "grey50")
+  )
+
+final_plot <- ggplot(plot_df,
+                     aes(x = qvalue, y = RichFactor, color = metadata_plot)) +
+  geom_point(aes(size = Count), alpha = 0.8) +
+  geom_text_repel(
+    aes(label = label, color = label_color),
+    size = 5 / .pt,
+    max.overlaps = 50,
+    box.padding = 0.3,
+    point.padding = 0.2,
+    segment.color = "grey50",
+    show.legend = FALSE
+  ) +
+  scale_color_manual(
+    values = c(
+      "Alcohol" = "#FF69B4",
+      "Other factors" = "grey70",
+      "grey50" = "grey50"
+    )
+  ) +
+  scale_size_area(breaks = c(3, 5, 7), limits = c(3, 7)) +
+  scale_x_continuous(
+    limits = c(-log10(0.05), max(plot_df$qvalue, na.rm = TRUE)),
+    breaks = -log10(c(0.05, 0.02, 0.01, 0.005)),
+    labels = c("0.05", "0.02", "0.01", "0.005")
+  ) +
+  facet_wrap(~Description, nrow = 1, scales = "fixed") +
+  theme_minimal() +
+  labs(
+    x = "FDR",
+    y = "Rich Factor",
+    color = "Lifestyle Factor",
+    size = "Number of KOs"
+  ) +
+  theme(
+    text = element_text(size = 5),
+    legend.position = "right",
+    legend.text = element_text(size = 5),
+    legend.title = element_text(size = 5),
+    axis.title = element_text(size = 5),
+    axis.text = element_text(size = 5),
+    strip.text = element_text(size = 5, face = "bold"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_line(linewidth = 0.3, color = "grey90")
+  )
+
+ggsave("fig5A.pdf", final_plot, width = 4, height = 1.5)
+
+write.csv(df, "fig5A.csv", row.names = FALSE)

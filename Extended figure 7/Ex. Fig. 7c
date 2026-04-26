@@ -1,0 +1,123 @@
+
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(openxlsx)
+library(patchwork)
+
+orient_total <- nrow(orent)
+cat("Total species in orient:", orient_total, "\n\n")
+
+milk_yogurt_foods <- c("Milk", "Yogurt")
+starch_foods <- c("Soft drinks", "Rice")
+
+temp <- causal_sig[causal_sig$Exposure %in% c(milk_yogurt_foods, starch_foods), ]
+temp <- temp[temp$Outcome != "General health", ]
+
+causal_sp_annotation <- data.frame(
+species = causal_sp,
+genus = NA,
+is_my = FALSE,
+is_st = FALSE
+)
+
+for(i in 1:nrow(causal_sp_annotation)){
+sp <- causal_sp_annotation$species[i]
+
+if(grepl("Streptococcus", sp)) causal_sp_annotation$genus[i] <- "Streptococcus"
+else if(grepl("Actinomyces", sp)) causal_sp_annotation$genus[i] <- "Actinomyces"
+else if(grepl("Rothia", sp)) causal_sp_annotation$genus[i] <- "Rothia"
+else if(grepl("Veillonella", sp)) causal_sp_annotation$genus[i] <- "Veillonella"
+else if(grepl("Lacto", sp, ignore.case = TRUE)) causal_sp_annotation$genus[i] <- "Lactobacillus"
+else if(grepl("Bifidobacterium", sp)) causal_sp_annotation$genus[i] <- "Bifidobacterium"
+else causal_sp_annotation$genus[i] <- "Other"
+
+my_hit <- temp %>%
+filter(Mediator == sp, Exposure %in% milk_yogurt_foods, EXP_coef > 0) %>%
+nrow()
+causal_sp_annotation$is_my[i] <- (my_hit > 0)
+
+st_hit <- temp %>%
+filter(Mediator == sp, Exposure %in% starch_foods, EXP_coef > 0) %>%
+nrow()
+causal_sp_annotation$is_st[i] <- (st_hit > 0)
+}
+
+genus_groups <- c("Streptococcus", "Actinomyces", "Rothia",
+"Veillonella", "Lactobacillus", "Bifidobacterium")
+
+fisher_results <- data.frame()
+
+for(genus_name in genus_groups){
+my_g <- sum(causal_sp_annotation$genus == genus_name & causal_sp_annotation$is_my)
+st_g <- sum(causal_sp_annotation$genus == genus_name & causal_sp_annotation$is_st)
+
+if(my_g == 0 & st_g == 0) next
+
+my_ng <- orient_total - my_g
+st_ng <- orient_total - st_g
+
+ct <- matrix(c(st_g, st_ng, my_g, my_ng), nrow=2)
+test <- fisher.test(ct)
+
+fisher_results <- rbind(fisher_results,
+data.frame(genus = genus_name, my_g = my_g, st_g = st_g,
+my_ng = my_ng, st_ng = st_ng,
+or = test$estimate, pvalue = test$p.value))
+}
+
+fisher_results$padj <- p.adjust(fisher_results$pvalue, method="BH")
+write.csv(fisher_results, "fisher_results.csv", row.names=FALSE)
+print(fisher_results)
+
+plot_df <- fisher_results[fisher_results$genus %in% c("Streptococcus", "Lactobacillus", "Bifidobacterium"), ]
+plot_df$my_pct <- plot_df$my_g / (plot_df$my_g + plot_df$my_ng) * 100
+plot_df$st_pct <- plot_df$st_g / (plot_df$st_g + plot_df$st_ng) * 100
+plot_df$pval_label <- ifelse(plot_df$pvalue < 0.001, "",
+ifelse(plot_df$pvalue < 0.01, "",
+ifelse(plot_df$pvalue < 0.05, "", "ns")))
+
+plot_one_genus <- function(df, genus_name){
+row_data <- df[df$genus == genus_name, ]
+
+tab <- data.frame(
+type = c("Milk", "Starch"),
+pos = c(row_data$my_g, row_data$st_g),
+total = c(row_data$my_g + row_data$my_ng, row_data$st_g + row_data$st_ng)
+)
+tab$percent <- tab$pos / tab$total * 100
+
+pval <- row_data$pvalue[1]
+p_text <- paste0("Fisher p = ", signif(pval, 3))
+
+tab$type <- factor(tab$type, levels = c("Milk","Starch"))
+
+ggplot(tab, aes(x = type, y = percent, fill = type)) +
+geom_bar(stat = "identity", width = 0.6) +
+geom_text(aes(label = paste0(pos, "/", total)),
+vjust = -0.4, size = 5/ggplot2::.pt) +
+scale_fill_manual(values = c("Starch" = "#F8766D", "Milk" = "#00BFC4")) +
+labs(title = genus_name,
+y = "Percentage (%)",
+x = NULL,
+subtitle = p_text) +
+ylim(0, max(tab$percent) * 1.35) +
+theme_classic(base_size = 5) +
+theme(legend.position = "none",
+plot.title = element_text(size=5, face="bold"),
+plot.subtitle = element_text(size=5),
+axis.text.x = element_text(size=5),
+axis.text.y = element_text(size=5),
+axis.title.y = element_text(size=5))
+}
+
+p1 <- plot_one_genus(plot_df, "Streptococcus")
+p2 <- plot_one_genus(plot_df, "Lactobacillus")
+p3 <- plot_one_genus(plot_df, "Bifidobacterium")
+
+final_plot <- p1 + p2 + p3 + plot_layout(ncol = 3)
+print(final_plot)
+
+ggsave("Sfig7c.pdf", plot = final_plot, device = "pdf",
+width = 2.4, height = 1.25, units = "in")
+

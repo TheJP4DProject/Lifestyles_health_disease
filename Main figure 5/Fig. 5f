@@ -1,0 +1,256 @@
+
+rm(list = ls())
+set.seed(100)
+
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+library(tibble)
+library(openxlsx)
+
+par(family = "Helvetica")
+
+plot_df <- read.xlsx("Supplementary Tables_260405.xlsx",
+                     sheet = "Fig.5F_data",
+                     check.names = F,
+                     sep.names = " ")
+
+MOlist <- c("M00377", "M00417", "M00530", "M00696", "M00723")
+
+MOlist_ids <- c(
+  "M00377" = "Wood-Ljungdahl pathway M00377",
+  "M00417" = "Cytochrome bo₃ oxidase M00417",
+  "M00530" = "Nitrate reduction M00530",
+  "M00696" = "RND efflux (AcrEF–TolC) M00696",
+  "M00723" = "CAMP resistance (EptB) M00723"
+)
+
+cytokine_list <- c(
+  "TNF_alpha", "IL8_CXCL8", "CCL2", "IFN_gamma",
+  "CXCL9", "IP10_CXCL10", "CXCL11"
+)
+
+plot_df$SP <- gsub("\\[ID:(\\d+)\\]", "\\1", plot_df$GTDB)
+
+to_mat <- function(df, row_col, value_cols) {
+  mat <- df[, c(row_col, value_cols), drop = FALSE] %>%
+    column_to_rownames(row_col) %>%
+    as.matrix()
+  matrix(
+    as.numeric(mat),
+    nrow = nrow(mat),
+    ncol = ncol(mat),
+    dimnames = dimnames(mat)
+  )
+}
+
+mo_rho_cols <- paste0(MOlist, "_rho")
+mo_p_cols <- paste0(MOlist, "_p")
+mo_fdr_cols <- paste0(MOlist, "_fdr")
+
+hm_mo_rho <- to_mat(plot_df, "SP", mo_rho_cols)
+hm_mo_pval <- to_mat(plot_df, "SP", mo_p_cols)
+hm_mo_fdr <- to_mat(plot_df, "SP", mo_fdr_cols)
+
+colnames(hm_mo_rho) <- MOlist_ids[MOlist]
+colnames(hm_mo_pval) <- MOlist_ids[MOlist]
+colnames(hm_mo_fdr) <- MOlist_ids[MOlist]
+
+metabo_cols <- c("Butyrate", "Acetate", "Propionate")
+
+hm_rho_1 <- to_mat(plot_df, "SP", paste0(metabo_cols, "_rho"))
+hm_pval_1 <- to_mat(plot_df, "SP", paste0(metabo_cols, "_p"))
+hm_fdr_1 <- to_mat(plot_df, "SP", paste0(metabo_cols, "_fdr"))
+
+colnames(hm_rho_1) <- metabo_cols
+colnames(hm_pval_1) <- metabo_cols
+colnames(hm_fdr_1) <- metabo_cols
+
+hm_rho_2 <- to_mat(plot_df, "SP", paste0(cytokine_list, "_rho"))
+hm_pval_2 <- to_mat(plot_df, "SP", paste0(cytokine_list, "_p"))
+hm_fdr_2 <- to_mat(plot_df, "SP", paste0(cytokine_list, "_fdr"))
+
+colnames(hm_rho_2) <- cytokine_list
+colnames(hm_pval_2) <- cytokine_list
+colnames(hm_fdr_2) <- cytokine_list
+
+top_anno_mo <- HeatmapAnnotation(
+  MO = anno_block(
+    gp = gpar(fill = "gray80", col = "gray80"),
+    labels = "SP vs MO",
+    labels_gp = gpar(fontsize = 5)
+  ),
+  annotation_height = unit(4, "mm")
+)
+
+top_anno_1 <- HeatmapAnnotation(
+  SCFA = anno_block(
+    gp = gpar(fill = "gray80", col = "gray80"),
+    labels = "SCFA",
+    labels_gp = gpar(fontsize = 5)
+  ),
+  annotation_height = unit(4, "mm")
+)
+
+top_anno_2 <- HeatmapAnnotation(
+  Cytokine = anno_block(
+    gp = gpar(fill = "gray80", col = "gray80"),
+    labels = "Cytokine",
+    labels_gp = gpar(fontsize = 5)
+  ),
+  annotation_height = unit(4, "mm")
+)
+
+legend_param <- list(
+  title_gp = gpar(fontsize = 5),
+  labels_gp = gpar(fontsize = 5),
+  grid_height = unit(1.4, "mm"),
+  grid_width = unit(1.4, "mm"),
+  legend_height = unit(20, "mm")
+)
+
+mini_mo <- min(hm_mo_rho, na.rm = TRUE)
+maxi_mo <- max(hm_mo_rho, na.rm = TRUE)
+
+col_mo <- colorRamp2(
+  c(0.5 * min(c(0, mini_mo, -maxi_mo)), 0, 0.5 * max(c(0, maxi_mo))),
+  c("#8DA0CB", "#F7F7F7", "#FC8D62")
+)
+
+hm1 <- Heatmap(
+  as.matrix(hm_mo_rho),
+  name = "**fdr<0.05\n*p<0.05\nMO vs SP\nSpearman rho",
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  top_annotation = top_anno_mo,
+  row_names_side = "left",
+  column_names_rot = 45,
+  height = nrow(hm_mo_rho) * unit(2.8, "mm"),
+  width = ncol(hm_mo_rho) * unit(2.8, "mm"),
+  heatmap_legend_param = legend_param,
+  column_names_gp = gpar(fontsize = 5),
+  row_names_gp = gpar(fontsize = 5),
+  col = col_mo,
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (hm_mo_fdr[i, j] < 0.05) {
+      grid.text("**", x, y, vjust = 0.8, gp = gpar(fontsize = 5))
+    } else if (hm_mo_pval[i, j] < 0.05) {
+      grid.text("*", x, y, vjust = 0.8, gp = gpar(fontsize = 5))
+    }
+  }
+)
+
+col_rho_1 <- colorRamp2(
+  c(min(hm_rho_1, na.rm = TRUE) / 2,
+    min(hm_rho_1, na.rm = TRUE) / 4,
+    0,
+    max(hm_rho_1, na.rm = TRUE) / 2,
+    max(hm_rho_1, na.rm = TRUE)),
+  c("#2166AC", "#67A9CF", "#F7F7F7", "#EF8A62", "#B2182B")
+)
+
+hm2 <- Heatmap(
+  as.matrix(hm_rho_1),
+  name = "**fdr<0.05\n*p<0.05\nSpearman rho",
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  top_annotation = top_anno_1,
+  column_names_side = "bottom",
+  row_names_side = "left",
+  column_names_rot = 45,
+  height = nrow(hm_rho_1) * unit(2.8, "mm"),
+  width = ncol(hm_rho_1) * unit(2.8, "mm"),
+  column_names_gp = gpar(fontsize = 5),
+  row_names_gp = gpar(fontsize = 5),
+  col = col_rho_1,
+  heatmap_legend_param = legend_param,
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (hm_fdr_1[i, j] < 0.05) {
+      grid.text("**", x, y, vjust = 0.8, gp = gpar(fontsize = 5))
+    } else if (hm_pval_1[i, j] < 0.05) {
+      grid.text("*", x, y, vjust = 0.8, gp = gpar(fontsize = 5))
+    }
+  }
+)
+
+mini_2 <- min(hm_rho_2, na.rm = TRUE)
+maxi_2 <- max(hm_rho_2, na.rm = TRUE)
+
+col_rho_2 <- colorRamp2(
+  c(0.5 * min(c(0, mini_2, -maxi_2)), 0, 0.5 * max(c(0, maxi_2))),
+  c("skyblue", "white", "pink")
+)
+
+hm3 <- Heatmap(
+  as.matrix(hm_rho_2),
+  name = "**fdr<0.05\n*p<0.05\nSpearman rho",
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  top_annotation = top_anno_2,
+  row_names_side = "left",
+  column_names_rot = 45,
+  height = nrow(hm_rho_2) * unit(2.8, "mm"),
+  width = ncol(hm_rho_2) * unit(2.8, "mm"),
+  column_names_gp = gpar(fontsize = 5),
+  row_names_gp = gpar(fontsize = 5),
+  col = col_rho_2,
+  heatmap_legend_param = legend_param,
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (hm_fdr_2[i, j] < 0.05) {
+      grid.text("**", x, y, vjust = 0.8, gp = gpar(fontsize = 5))
+    } else if (hm_pval_2[i, j] < 0.05) {
+      grid.text("*", x, y, vjust = 0.8, gp = gpar(fontsize = 5))
+    }
+  }
+)
+
+pdf("fig5F.pdf", family = "Helvetica", width = 10, height = 10)
+
+draw(
+  hm1 + hm2 + hm3,
+  padding = unit(c(80, 50, 2, 2), "mm"),
+  merge_legend = TRUE
+)
+
+dev.off()
+
+source_df <- plot_df %>%
+  mutate(GTDB = GTDB, NCBI = NCBI) %>%
+  select(
+    GTDB, NCBI,
+    all_of(c(paste0(MOlist, "_rho"),
+             paste0(MOlist, "_p"),
+             paste0(MOlist, "_fdr"))),
+    all_of(c(paste0(metabo_cols, "_rho"),
+             paste0(metabo_cols, "_p"),
+             paste0(metabo_cols, "_fdr"))),
+    all_of(c(paste0(cytokine_list, "_rho"),
+             paste0(cytokine_list, "_p"),
+             paste0(cytokine_list, "_fdr")))
+  )
+
+ordered_cols <- c(
+  "GTDB", "NCBI",
+  unlist(lapply(MOlist, function(x){
+    c(paste0(x, "_rho"),
+      paste0(x, "_p"),
+      paste0(x, "_fdr"))
+  })),
+  unlist(lapply(metabo_cols, function(x){
+    c(paste0(x, "_rho"),
+      paste0(x, "_p"),
+      paste0(x, "_fdr"))
+  })),
+  unlist(lapply(cytokine_list, function(x){
+    c(paste0(x, "_rho"),
+      paste0(x, "_p"),
+      paste0(x, "_fdr"))
+  }))
+)
+
+source_df <- source_df %>% select(all_of(ordered_cols))
+
+write.csv(source_df, "fig5F.csv", row.names = FALSE)
+
+message("Saved: fig5F_source_data.csv")

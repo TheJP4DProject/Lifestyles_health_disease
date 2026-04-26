@@ -1,0 +1,155 @@
+library(ggplot2)
+library(dplyr)
+
+df <- read.csv("fig6d_data.csv", check.names = FALSE, stringsAsFactors = FALSE)
+
+outcome_display_map <- c(
+"General health" = "General health",
+"Inflammatory Bowel Disease (IBD)" = "IBD",
+"Irritable Bowel Syndrome (IBS)" = "IBS",
+"Liver cirrhosis" = "Liver cirrhosis",
+"Type 2 Diabetes (T2D)" = "T2D",
+"Hypertension" = "Hypertension",
+"Hyperuricemia" = "Hyperuricemia",
+"Dyslipidemia" = "Dyslipidemia",
+"Ischemic Heart Disease (IHD)" = "IHD",
+"Heart failure" = "Heart failure",
+"Stroke" = "Stroke",
+"Depression" = "Depression",
+"Rheumatoid arthritis" = "Rheumatoid arthritis",
+"Collagen disease" = "Collagen disease",
+"Asthma" = "Asthma",
+"Chronic Kidney Disease (CKD)" = "CKD",
+"Chronic Obstructive Pulmonary Disease (COPD)" = "COPD"
+)
+
+df$outcome_display <- recode(df$outcome, !!!outcome_display_map)
+
+outcome_order <- c(
+"General health",
+"Inflammatory Bowel Disease (IBD)",
+"Type 2 Diabetes (T2D)",
+"Depression",
+"Rheumatoid arthritis"
+)
+
+outcome_display_order <- c(
+"General health",
+"IBD",
+"T2D",
+"Depression",
+"Rheumatoid arthritis"
+)
+
+df <- df[df$outcome %in% outcome_order, ]
+
+ordered_df_groups <- c(
+"Vegetables", "Fruits", "Mushrooms",
+"Coffee", "Green tea", "Vinegar",
+"Tofu", "Natto", "Miso",
+"Pickles", "Kimchi", "Yogurt",
+"Milk", "Meat", "Processed meat", "Seafood",
+"Eggs", "Dressing", "Rice", "Bread", "Noodles", "Soft drinks",
+"Alcohol", "Smoking",
+"Weak physical activity","Moderate physical activity","Strong physical activity",
+"Sitting down ≥ 9.5h"
+)
+
+df <- df[df$metadata %in% ordered_df_groups, ]
+
+df <- df %>%
+group_by(outcome) %>%
+mutate(fdr_28 = p.adjust(spearman_pval_adjusted, method = "BH")) %>%
+ungroup()
+
+df$sig_label <- case_when(
+df$fdr_28 < 0.05 ~ "**",
+df$spearman_pval_adjusted < 0.05 ~ "*",
+TRUE ~ ""
+)
+
+df$color <- case_when(
+df$spearman_pval_adjusted < 0.05 & df$spearman_rho_adjusted > 0 ~ "pos",
+df$spearman_pval_adjusted < 0.05 & df$spearman_rho_adjusted < 0 ~ "neg",
+TRUE ~ "ns"
+)
+
+my_theme <- theme_classic(base_size = 5) +
+theme(
+strip.background = element_blank(),
+strip.text = element_text(size = 5),
+axis.text.x = element_text(size = 5),
+axis.text.y = element_text(size = 5),
+axis.line.y = element_blank(),
+axis.ticks.y = element_blank(),
+axis.line.x = element_blank(),
+panel.border = element_rect(color = "gray70", fill = NA)
+)
+
+df_v1 <- df
+df_v1$metadata <- factor(df_v1$metadata, levels = rev(ordered_df_groups))
+df_v1$outcome_display <- factor(df_v1$outcome_display, levels = outcome_display_order)
+
+df_v1$color_v1 <- ifelse(df_v1$spearman_rho_adjusted > 0, "pos", "neg")
+df_v1_sig <- df_v1[df_v1$sig_label != "", ]
+
+p_v1 <- ggplot(df_v1, aes(x = spearman_rho_adjusted, y = metadata)) +
+geom_vline(xintercept = 0, color = "gray60", linewidth = 0.35) +
+geom_segment(aes(x = 0, xend = spearman_rho_adjusted, yend = metadata,
+color = color_v1),
+linewidth = 1.5) +
+geom_point(aes(color = color_v1), size = 1.6) +
+geom_text(data = df_v1_sig[df_v1_sig$spearman_rho_adjusted < 0, ],
+aes(x = spearman_rho_adjusted + 0.01, label = sig_label),
+size = 1.5, hjust = 1) +
+geom_text(data = df_v1_sig[df_v1_sig$spearman_rho_adjusted >= 0, ],
+aes(x = spearman_rho_adjusted - 0.01, label = sig_label),
+size = 1.5, hjust = 0) +
+scale_color_manual(values = c("pos" = "#F4A460", "neg" = "#87BFDE")) +
+facet_grid(. ~ outcome_display) +
+my_theme
+
+ggsave("fig6d.pdf", p_v1, width = 4.5, height = 3)
+
+outcome_display_order <- c(
+"General health",
+"Inflammatory Bowel Disease (IBD)",
+"Type 2 Diabetes (T2D)",
+"Depression",
+"Rheumatoid arthritis"
+)
+
+ordered_df_groups <- c(
+"Vegetables", "Fruits", "Mushrooms",
+"Coffee", "Green tea", "Vinegar",
+"Tofu", "Natto", "Miso",
+"Pickles", "Kimchi", "Yogurt",
+"Milk", "Meat", "Processed meat", "Seafood",
+"Eggs", "Dressing", "Rice", "Bread", "Noodles", "Soft drinks",
+"Alcohol", "Smoking",
+"Weak physical activity","Moderate physical activity","Strong physical activity",
+"Sitting down ≥ 9.5h"
+)
+
+ver1_sourcedata <- df_v1 %>%
+filter(outcome_display %in% outcome_display_order) %>%
+mutate(
+metadata = factor(metadata, levels = ordered_df_groups),
+outcome_display = factor(outcome_display, levels = outcome_display_order)
+) %>%
+arrange(outcome_display, metadata) %>%
+select(
+outcome,
+outcome_display,
+metadata,
+spearman_rho_adjusted,
+spearman_pval_adjusted,
+fdr_28,
+sig_label
+)
+
+write.csv(
+ver1_sourcedata,
+"fig6d.csv",
+row.names = FALSE
+)

@@ -1,0 +1,522 @@
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(knitr)
+library(ggrepel)
+library(readxl)
+library(readr)
+library(purrr)
+library(magrittr)
+library(tidyverse)
+library(broom)
+library(openxlsx)
+library(circlize)
+library(ComplexHeatmap)
+library(export)
+
+ordered_df <- data.frame(
+group = c(
+"Vegetables", "Fruits", "Mushrooms",
+"Coffee", "Green tea", "Vinegar",
+"Tofu", "Natto", "Miso",
+"Pickles", "Kimchi", "Yogurt",
+"Milk", "Meat", "Processed meat", "Seafood",
+"Eggs", "Dressing", "Rice", "Bread", "Noodles", "Soft drinks",
+"Alcohol", "Smoking", "Weak physical activity","Moderate physical activity","Strong physical activity",
+"Sitting down ≥ 9.5h"
+),
+annotation = c(
+rep("Plant-based diets", times = 3),
+rep("Polyphenol-rich beverages", times = 2),
+rep("-", times = 2),
+rep("Fermented diets", times = 4),
+rep("Dairy product", times = 2),
+rep("Animal-based diets", times = 5),
+rep("Starch/Sugar-rich diets", times = 4),
+rep("Alcohol/Smoking", times = 2),
+rep("Exercise", times = 4)
+),
+color = c(
+rep("#66c2a5", times = 3),
+rep("#b3b3b3", times = 2),
+rep("white", times = 2),
+rep("#fc8d62", times = 4),
+rep("#8da0cb", times = 2),
+rep("#e78ac3", times = 5),
+rep("#a6d854", times = 4),
+rep("#ffd92f", times = 2),
+rep("#e5c494", times = 4)
+)
+)
+rownames(ordered_df) <- ordered_df$group
+
+Disease_list <- data.frame(
+group = c("General health", "Inflammatory Bowel Disease (IBD)", "Irritable Bowel Syndrome (IBS)", "Liver cirrhosis", "Type 2 Diabetes (T2D)",
+"Hypertension", "Hyperuricemia", "Dyslipidemia", "Ischemic Heart Disease (IHD)", "Heart failure", "Stroke",
+"Depression", "Rheumatoid arthritis", "Collagen disease",
+"Asthma", "Chronic Obstructive Pulmonary Disease (COPD)"),
+color = c("white", rep("black", 15))
+)
+
+data1 = read.xlsx("Supplementary Tables_260405.xlsx",
+sheet="S6",
+check.names = F,
+sep.names = " ")
+colnames(data1)[c(2,3,6)]=c("feature","metadata","qval")
+data1=data1[,c("metadata","feature","coef","pval")]
+colnames(data1)=c("meta","feature","coef","pvalue")
+data2 = read.csv("keiji_410_lm_20250317.csv")
+data2=data2[,c("meta","feature","coef","pvalue")]
+colnames(data2)=c("meta","feature","coef","pvalue")
+key1 = "Cross-sectional analysis"
+key2 = "Longitudinal analysis"
+tit = "Ver2_oudan_maa_vs_jyudan_lm_20260204"
+
+colnames(data1) = paste0("oudan_", colnames(data1))
+colnames(data2) = paste0("jyudan_", colnames(data2))
+data2$jyudan_meta = gsub("Alcohol.consumption", "Alcohol", data2$jyudan_meta)
+data2$jyudan_meta = gsub("Strong.active.min", "Strong physical activity", data2$jyudan_meta)
+data2$jyudan_meta = gsub("Moderate.active.min", "Moderate physical activity", data2$jyudan_meta)
+data2$jyudan_meta = gsub("Weak.active.min", "Weak physical activity", data2$jyudan_meta)
+data2$jyudan_meta = gsub("Sitting.down.min", "Sitting down ≥ 9.5h", data2$jyudan_meta)
+data2$jyudan_meta = gsub("tto", "Natto", data2$jyudan_meta)
+
+data2$jyudan_meta <- gsub("^Fruit$", "Fruits", data2$jyudan_meta)
+data2$jyudan_meta <- gsub("^Mushroom$", "Mushrooms", data2$jyudan_meta)
+data2$jyudan_meta <- gsub("^Green\.tea$", "Green tea", data2$jyudan_meta)
+data2$jyudan_meta <- gsub("^Kimuchi$", "Kimchi", data2$jyudan_meta)
+data2$jyudan_meta <- gsub("^Egg$", "Eggs", data2$jyudan_meta)
+data2$jyudan_meta <- gsub("^Noodle$", "Noodles", data2$jyudan_meta)
+data2$jyudan_meta <- gsub("^Soft\.drinks$", "Soft drinks", data2$jyudan_meta)
+data2$jyudan_meta <- gsub("^Current\.smoking$", "Smoking", data2$jyudan_meta)
+data2$jyudan_meta <- gsub("Processed.meat", "Processed meat", data2$jyudan_meta)
+
+unique(data2$jyudan_meta)
+
+data1=data1[data1$oudan_meta %in% data2$jyudan_meta,]
+data1$key=paste0(data1$oudan_feature,data1$oudan_meta)
+data2$key=paste0(data2$jyudan_feature,data2$jyudan_meta)
+rownames(data1)=data1$key
+data1=data1[data2$key,]
+
+temp = cbind(data1, data2)
+sum(temp$jyudan_feature != temp$oudan_feature)
+sum(temp$oudan_meta != temp$jyudan_meta)
+tempp = temp[(temp$oudan_pvalue < 0.05) | (temp$jyudan_pvalue < 0.05), ]
+tempp=na.omit(tempp)
+r=NULL
+for ( i in unique(tempp$oudan_meta)){
+temppp=tempp[tempp$oudan_meta==i,]
+nn=nrow(temppp)
+temppp=cor.test(temppp$oudan_coef,temppp$jyudan_coef,method="spearman")
+r=rbind(r,data.frame(meta=i,
+cate=tit,
+r=temppp$estimate,
+p=temppp$p.value,
+n=nn,
+type="orP005"))
+}
+
+tempp=cor.test(tempp$oudan_coef,tempp$jyudan_coef,method="spearman")
+data.frame(r=tempp$estimate,
+p=tempp$p.value)
+
+tempp = temp
+for ( i in unique(tempp$oudan_meta)){
+temppp=tempp[tempp$oudan_meta==i,]
+nn=nrow(temppp)
+temppp=cor.test(temppp$oudan_coef,temppp$jyudan_coef,method="spearman")
+r=rbind(r,data.frame(meta=i,
+cate=tit,
+r=temppp$estimate,
+p=temppp$p.value,
+n=nn,
+type="ALL"))
+}
+
+tempp=cor.test(tempp$oudan_coef,tempp$jyudan_coef,method="spearman")
+data.frame(r=tempp$estimate,
+p=tempp$p.value)
+
+temp = temp[(temp$oudan_pvalue < 0.05) & (temp$jyudan_pvalue < 0.05), ]
+temp = temp[temp$oudan_coef * temp$jyudan_coef > 0, ]
+temp = na.omit(temp)
+
+original_data = temp
+original_data$annotation = ordered_df[original_data$oudan_meta, ]$annotation
+original_data$annotation2 = ordered_df[original_data$oudan_meta, ]$annotation2
+original_data=original_data[,-grep("key",colnames(original_data))]
+original_data <- original_data %>%
+mutate(group = factor(oudan_meta, levels = ordered_df$group)) %>%
+arrange(group, oudan_coef)
+
+original_data$oudan_meta <- factor(original_data$oudan_meta, levels = unique(original_data$oudan_meta))
+
+unique_meta <- unique(original_data$oudan_meta)
+n_meta <- length(unique_meta)
+
+split_meta_1 <- "Tofu"
+split_meta_2 <- "Dressing"
+
+check1 <- max(which(original_data$oudan_meta == split_meta_1))
+check2 <- max(which(original_data$oudan_meta == split_meta_2))
+
+tt <- unique(ordered_df[, c("color", "annotation")])
+ttt <- unique(tt[, c("color", "annotation")])
+col_M <- setNames(ttt$color, ttt$annotation)
+
+data_part1 <- original_data[1:check1, ]
+data_part1$oudan_meta <- factor(data_part1$oudan_meta, levels = unique(data_part1$oudan_meta))
+
+data_part1 <- data_part1 %>%
+group_by(jyudan_feature) %>%
+mutate(feature_id = if(n() > 1) paste0(jyudan_feature, " ", row_number()) else jyudan_feature) %>%
+ungroup()
+
+hm_logFC_1 <- data_part1 %>%
+select(feature_id, jyudan_coef) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+hm_pval_1 <- data_part1 %>%
+select(feature_id, jyudan_pvalue) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+hm_coef_1 <- data_part1 %>%
+select(feature_id, oudan_coef) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+hm_pvalMaa_1 <- data_part1 %>%
+select(feature_id, oudan_pvalue) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+rownames(hm_logFC_1) <- key2
+rownames(hm_coef_1) <- key1
+
+colnames(hm_coef_1) <- sapply(colnames(hm_coef_1), function(name) {
+if (grepl(" \d+$", name)) {
+num <- as.numeric(sub(".* (\d+)$", "\1", name))
+name <- sub(" \d+$", "", name)
+name <- paste0(strrep(" ", num), name)
+}
+return(name)
+})
+
+colnames(hm_coef_1) <- gsub("\[ID:(\d+)\]", "\1", colnames(hm_coef_1))
+colnames(hm_logFC_1) <- colnames(hm_coef_1)
+colnames(hm_pval_1) <- colnames(hm_coef_1)
+colnames(hm_pvalMaa_1) <- colnames(hm_coef_1)
+
+Annotation_top_1 <- HeatmapAnnotation(
+Classification = data_part1$annotation,
+annotation_name_gp = gpar(fontsize = 10),
+annotation_name_rot = 0,
+col = list(Classification = col_M),
+simple_anno_size = unit(0.2, "cm"),
+annotation_name_side = "left",
+show_legend = FALSE
+)
+
+col_fun = colorRamp2(c(-0.4, 0, 0.4), c("#091B7D", "white", "#C71585"))
+
+hm_top_1 <- Heatmap(hm_logFC_1,
+name = "up",
+cluster_rows = FALSE,
+cluster_columns = FALSE,
+col = col_fun,
+row_title = " ",
+row_dend_side = "right",
+row_names_side = "left",
+height = 1 * unit(3, "mm"),
+show_row_names = TRUE,
+column_split = data_part1$oudan_meta,
+column_title_rot = 45,
+column_title_gp = gpar(fontsize = 10),
+column_names_gp = gpar(fontsize = 10),
+show_column_names = FALSE,
+show_heatmap_legend = FALSE,
+cell_fun = function(j, i, x, y, width, height, fill) {
+if(hm_pval_1[i, j] < 0.05) {
+grid.text("*", x, y, vjust = 0.75)
+}
+})
+
+col_5137 = colorRamp2(c(-0.2, 0, 0.2), c("blue", "white", "red"))
+
+hm_bottom_1 <- Heatmap(hm_coef_1,
+name = "down",
+cluster_columns = FALSE,
+cluster_rows = FALSE,
+col = col_5137,
+row_title = " ",
+column_split = data_part1$oudan_meta,
+column_title = unique(data_part1$oudan_meta),
+row_dend_side = "right",
+row_names_side = "left",
+height = 1 * unit(3, "mm"),
+show_row_names = TRUE,
+column_title_rot = 45,
+column_title_gp = gpar(fontsize = 10),
+column_names_gp = gpar(fontsize = 10),
+show_heatmap_legend = FALSE,
+cell_fun = function(j, i, x, y, width, height, fill) {
+if(!is.na(hm_pvalMaa_1[i, j]) && hm_pvalMaa_1[i, j] < 0.05) {
+grid.text("*", x, y, vjust = 0.75)
+}
+})
+
+cairo_pdf(file = paste0(tit, "_part1.pdf"), width = 16, height = 7, family = "Helvetica")
+ht1 <- draw(hm_top_1 %v% hm_bottom_1, padding = unit(c(80, 2, 2, 2), "mm"))
+dev.off()
+
+data_part2 <- original_data[(check1 + 1):check2, ]
+data_part2$oudan_meta <- factor(data_part2$oudan_meta, levels = unique(data_part2$oudan_meta))
+
+data_part2 <- data_part2 %>%
+group_by(jyudan_feature) %>%
+mutate(feature_id = if(n() > 1) paste0(jyudan_feature, " ", row_number()) else jyudan_feature) %>%
+ungroup()
+
+hm_logFC_2 <- data_part2 %>%
+select(feature_id, jyudan_coef) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+hm_pval_2 <- data_part2 %>%
+select(feature_id, jyudan_pvalue) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+hm_coef_2 <- data_part2 %>%
+select(feature_id, oudan_coef) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+hm_pvalMaa_2 <- data_part2 %>%
+select(feature_id, oudan_pvalue) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+rownames(hm_logFC_2) <- key2
+rownames(hm_coef_2) <- key1
+
+colnames(hm_coef_2) <- sapply(colnames(hm_coef_2), function(name) {
+if (grepl(" \d+$", name)) {
+num <- as.numeric(sub(".* (\d+)$", "\1", name))
+name <- sub(" \d+$", "", name)
+name <- paste0(strrep(" ", num), name)
+}
+return(name)
+})
+
+colnames(hm_coef_2) <- gsub("\[ID:(\d+)\]", "\1", colnames(hm_coef_2))
+colnames(hm_logFC_2) <- colnames(hm_coef_2)
+colnames(hm_pval_2) <- colnames(hm_coef_2)
+colnames(hm_pvalMaa_2) <- colnames(hm_coef_2)
+
+Annotation_top_2 <- HeatmapAnnotation(
+Classification = data_part2$annotation,
+annotation_name_gp = gpar(fontsize = 10),
+annotation_name_rot = 0,
+col = list(Classification = col_M),
+simple_anno_size = unit(0.2, "cm"),
+annotation_name_side = "left",
+show_legend = FALSE
+)
+
+hm_top_2 <- Heatmap(hm_logFC_2,
+name = "up",
+cluster_rows = FALSE,
+cluster_columns = FALSE,
+col = col_fun,
+row_title = " ",
+row_dend_side = "right",
+row_names_side = "left",
+height = 1 * unit(3, "mm"),
+show_row_names = TRUE,
+column_split = data_part2$oudan_meta,
+column_title_rot = 45,
+column_title_gp = gpar(fontsize = 10),
+column_names_gp = gpar(fontsize = 10),
+show_column_names = FALSE,
+show_heatmap_legend = FALSE,
+cell_fun = function(j, i, x, y, width, height, fill) {
+if(hm_pval_2[i, j] < 0.05) {
+grid.text("*", x, y, vjust = 0.75)
+}
+})
+
+hm_bottom_2 <- Heatmap(hm_coef_2,
+name = "down",
+cluster_columns = FALSE,
+cluster_rows = FALSE,
+col = col_5137,
+row_title = " ",
+column_split = data_part2$oudan_meta,
+column_title = unique(data_part2$oudan_meta),
+row_dend_side = "right",
+row_names_side = "left",
+height = 1 * unit(3, "mm"),
+show_row_names = TRUE,
+column_title_rot = 45,
+column_title_gp = gpar(fontsize = 10),
+column_names_gp = gpar(fontsize = 10),
+show_heatmap_legend = FALSE,
+cell_fun = function(j, i, x, y, width, height, fill) {
+if(!is.na(hm_pvalMaa_2[i, j]) && hm_pvalMaa_2[i, j] < 0.05) {
+grid.text("*", x, y, vjust = 0.75)
+}
+})
+
+cairo_pdf(file = paste0(tit, "_part2.pdf"), width = 16, height = 7, family = "Helvetica")
+ht2 <- draw(hm_top_2 %v% hm_bottom_2, padding = unit(c(80, 2, 2, 2), "mm"))
+dev.off()
+
+data_part3 <- original_data[(check2 + 1):nrow(original_data), ]
+data_part3$oudan_meta <- factor(data_part3$oudan_meta, levels = unique(data_part3$oudan_meta))
+
+data_part3 <- data_part3 %>%
+group_by(jyudan_feature) %>%
+mutate(feature_id = if(n() > 1) paste0(jyudan_feature, " ", row_number()) else jyudan_feature) %>%
+ungroup()
+
+hm_logFC_3 <- data_part3 %>%
+select(feature_id, jyudan_coef) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+hm_pval_3 <- data_part3 %>%
+select(feature_id, jyudan_pvalue) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+hm_coef_3 <- data_part3 %>%
+select(feature_id, oudan_coef) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+hm_pvalMaa_3 <- data_part3 %>%
+select(feature_id, oudan_pvalue) %>%
+tibble::column_to_rownames(var = "feature_id") %>%
+t()
+
+rownames(hm_logFC_3) <- key2
+rownames(hm_coef_3) <- key1
+
+colnames(hm_coef_3) <- sapply(colnames(hm_coef_3), function(name) {
+if (grepl(" \d+$", name)) {
+num <- as.numeric(sub(".* (\d+)$", "\1", name))
+name <- sub(" \d+$", "", name)
+name <- paste0(strrep(" ", num), name)
+}
+return(name)
+})
+
+colnames(hm_coef_3) <- gsub("\[ID:(\d+)\]", "\1", colnames(hm_coef_3))
+colnames(hm_logFC_3) <- colnames(hm_coef_3)
+colnames(hm_pval_3) <- colnames(hm_coef_3)
+colnames(hm_pvalMaa_3) <- colnames(hm_coef_3)
+
+Annotation_top_3 <- HeatmapAnnotation(
+Classification = data_part3$annotation,
+annotation_name_gp = gpar(fontsize = 10),
+annotation_name_rot = 0,
+col = list(Classification = col_M),
+simple_anno_size = unit(0.2, "cm"),
+annotation_name_side = "left",
+show_legend = FALSE
+)
+
+hm_top_3 <- Heatmap(hm_logFC_3,
+name = "up",
+cluster_rows = FALSE,
+cluster_columns = FALSE,
+col = col_fun,
+row_title = " ",
+row_dend_side = "right",
+row_names_side = "left",
+height = 1 * unit(3, "mm"),
+show_row_names = TRUE,
+column_split = data_part3$oudan_meta,
+column_title_rot = 45,
+column_title_gp = gpar(fontsize = 10),
+column_names_gp = gpar(fontsize = 10),
+show_column_names = FALSE,
+show_heatmap_legend = FALSE,
+cell_fun = function(j, i, x, y, width, height, fill) {
+if(hm_pval_3[i, j] < 0.05) {
+grid.text("*", x, y, vjust = 0.75)
+}
+})
+
+hm_bottom_3 <- Heatmap(hm_coef_3,
+name = "down",
+cluster_columns = FALSE,
+cluster_rows = FALSE,
+col = col_5137,
+row_title = " ",
+column_split = data_part3$oudan_meta,
+column_title = unique(data_part3$oudan_meta),
+row_dend_side = "right",
+row_names_side = "left",
+height = 1 * unit(3, "mm"),
+show_row_names = TRUE,
+column_title_rot = 45,
+column_title_gp = gpar(fontsize = 10),
+column_names_gp = gpar(fontsize = 10),
+show_heatmap_legend = FALSE,
+cell_fun = function(j, i, x, y, width, height, fill) {
+if(!is.na(hm_pvalMaa_3[i, j]) && hm_pvalMaa_3[i, j] < 0.05) {
+grid.text("*", x, y, vjust = 0.75)
+}
+})
+
+cairo_pdf(file = paste0(tit, "_part3.pdf"), width = 16, height = 7, family = "Helvetica")
+ht3 <- draw(hm_top_3 %v% hm_bottom_3, padding = unit(c(80, 2, 2, 2), "mm"))
+dev.off()
+
+temp_full <- temp
+temp_full <- temp_full[, !duplicated(colnames(temp_full))]
+
+temp_full <- temp_full %>%
+group_by(oudan_meta) %>%
+mutate(oudan_fdr = p.adjust(oudan_pvalue, method = "BH")) %>%
+ungroup()
+
+temp_full <- temp_full %>%
+group_by(jyudan_meta) %>%
+mutate(jyudan_fdr = p.adjust(jyudan_pvalue, method = "BH")) %>%
+ungroup()
+
+newtoold = read.csv(file.path("smoking","motu3","SP_new_old.csv"),
+row.names = 1,
+stringsAsFactors = FALSE)
+
+rownames(newtoold) <- newtoold$new
+
+temp_full$NCBI <- newtoold[temp_full$oudan_feature, "old"]
+
+source_data <- temp_full %>%
+select(
+GTDB = oudan_feature,
+NCBI,
+Metadata = oudan_meta,
+Cross-sectional Coefficient = oudan_coef,
+Cross-sectional P = oudan_pvalue,
+Cross-sectional FDR = oudan_fdr,
+Longitudinal Coefficient = jyudan_coef,
+Longitudinal P = jyudan_pvalue,
+Longitudinal FDR = jyudan_fdr
+)
+
+colnames(source_data) <- colnames(source_data) %>%
+gsub("_", " ", .) %>%
+gsub("Coefficient", "Coefficient", .) %>%
+gsub("P$", "P", .)
+
+write.csv(source_data,
+paste0(tit, "_source_data.csv"),
+row.names = FALSE)

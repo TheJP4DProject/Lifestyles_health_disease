@@ -1,0 +1,130 @@
+library(ComplexHeatmap)
+library(circlize)
+library(data.table)
+library(grid)
+library(stringr)
+library(openxlsx)
+
+df <- read.xlsx("Supplementary Tables_260405.xlsx",
+sheet="Sfig.6A_data",
+check.names = F,
+sep.names = " ")
+
+df$SP_clean <- str_remove(df$GTDB, "\s*\[ID:\d+\]$")
+
+KO_list <- c("K01728", "K01195", "K01179", "K00041", "K00248")
+
+KO_names <- c(
+"K01728" = "Pectin degradation K01728",
+"K01195" = "Hemicellulose degradation K01195",
+"K01179" = "Cellulose degradation K01179",
+"K00041" = "Uronic acid conversion K00041",
+"K00248" = "Butyryl-CoA formation K00248"
+)
+
+mat_rho <- as.matrix(df[, paste0(KO_list, "_Rho")])
+rownames(mat_rho) <- df$SP_clean
+colnames(mat_rho) <- KO_names[KO_list]
+
+mat_p <- as.matrix(df[, paste0(KO_list, "_P")])
+rownames(mat_p) <- df$SP_clean
+colnames(mat_p) <- KO_names[KO_list]
+
+mat_q <- as.matrix(df[, paste0(KO_list, "_FDR")])
+rownames(mat_q) <- df$SP_clean
+colnames(mat_q) <- KO_names[KO_list]
+
+mat_rho[is.na(mat_rho)] <- 0
+mat_p[is.na(mat_p)] <- 1
+mat_q[is.na(mat_q)] <- 1
+
+annot_phylum <- ifelse(
+grepl("Firmicutes", df$Phylum), "Firmicutes",
+ifelse(grepl("Bacteroidota", df$Phylum), "Bacteroidota", "Other")
+)
+
+phylum_colors <- c(
+"Firmicutes" = "#E8A87C",
+"Bacteroidota" = "#85C1E9",
+"Other" = "gray85"
+)
+
+row_annot <- rowAnnotation(
+Phylum = annot_phylum,
+col = list(Phylum = phylum_colors),
+annotation_name_gp = gpar(fontsize = 5),
+annotation_legend_param = list(
+title_gp = gpar(fontsize = 5, fontface = "bold"),
+labels_gp = gpar(fontsize = 5),
+grid_height = unit(1.75, "mm"),
+grid_width = unit(1.75, "mm")
+),
+simple_anno_size = unit(2, "mm")
+)
+
+col_breaks <- c(0.25, 0.2, 0.1, 0.05, 0.01, 0, -0.01, -0.05, -0.1, -0.2, -0.25)
+
+col_fun <- colorRamp2(
+col_breaks,
+c("#E68795",
+"#EEA3AD",
+"#F5BFC6",
+"#F9D5D8",
+"#FDEBEC",
+"white",
+"#EEF5FB",
+"#DCEAF7",
+"#C8DEF1",
+"#B2D1EA",
+"#9BC4E2")
+)
+
+make_cell_fun <- function(qmat, pmat){
+function(j, i, x, y, width, height, fill){
+q <- qmat[i, j]
+p <- pmat[i, j]
+if(!is.na(q) && q < 0.05){
+grid.text("**", x, y, vjust = 0.8, gp = gpar(fontsize = 3.25))
+} else if(!is.na(p) && p < 0.05){
+grid.text("*", x, y, vjust = 0.8, gp = gpar(fontsize = 3.25))
+}
+}
+}
+
+legend_param <- list(
+title_gp = gpar(fontsize = 5, fontface = "bold"),
+labels_gp = gpar(fontsize = 5),
+grid_height = unit(1.75, "mm"),
+grid_width = unit(1.75, "mm"),
+legend_height = unit(14, "mm"),
+at = c(-0.5, -0.3, 0, 0.3, 0.5),
+tick_length = unit(0.5, "mm"),
+background_gp = gpar(lwd = 0.25)
+)
+
+hm <- Heatmap(
+mat_rho,
+name = "Spearman Rho\n(P: * < 0.05, FDR: ** < 0.05)",
+cluster_columns = FALSE,
+cluster_rows = FALSE,
+col = col_fun,
+row_title_gp = gpar(fontsize = 5),
+row_dend_side = "right",
+row_names_side = "left",
+height = nrow(mat_rho) * unit(2.5, "mm"),
+width = ncol(mat_rho) * unit(2.5, "mm"),
+show_row_names = TRUE,
+show_column_names = TRUE,
+column_title_rot = 0,
+column_names_rot = 60,
+column_title_gp = gpar(fontsize = 5),
+column_names_gp = gpar(fontsize = 5),
+row_names_gp = gpar(fontsize = 5),
+heatmap_legend_param = legend_param,
+right_annotation = row_annot,
+cell_fun = make_cell_fun(mat_q, mat_p)
+)
+
+pdf("Sfig5a.pdf", width = 8.27, height = 11.69, family = "Helvetica")
+draw(hm, padding = unit(c(5, 40, 15, 2), "mm"))
+dev.off()

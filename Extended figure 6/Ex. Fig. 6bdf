@@ -1,0 +1,241 @@
+
+rm(list = ls())
+set.seed(100)
+
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+library(openxlsx)
+
+par(family = "Helvetica")
+
+metabo_cols <- c("Butyrate", "Acetate", "Propionate")
+
+cytokine_list <- c(
+"TNF_alpha",
+"IL8_CXCL8",
+"CCL2",
+"IFN_gamma",
+"CXCL9",
+"IP10_CXCL10",
+"CXCL11"
+)
+
+key_names <- c("Natto","Pickles","Yogurt")
+
+plot_one_heatmap <- function(tr) {
+
+sub_result <- read.xlsx(
+"Supplementary Tables_260405.xlsx",
+sheet = "Sfig.6BDF_data",
+check.names = FALSE,
+sep.names = " "
+)
+
+sub_result <- sub_result[sub_result$Exposure %in% tr, ]
+
+sub_result <- sub_result %>%
+mutate(order_id = row_number()) %>%
+arrange(order_id)
+
+sub_result <- sub_result %>%
+group_by(Starter_Bacteria_GTDB) %>%
+mutate(sp_fdr = p.adjust(pval, method = "BH")) %>%
+ungroup()
+
+for (m in metabo_cols) {
+sub_result[[paste0(m, "_fdr")]] <-
+ave(
+sub_result[[paste0(m, "_p")]],
+sub_result$Starter_Bacteria_GTDB,
+FUN = function(x) p.adjust(x, method = "BH")
+)
+}
+
+for (c in cytokine_list) {
+sub_result[[paste0(c, "_fdr")]] <-
+ave(
+sub_result[[paste0(c, "_p")]],
+sub_result$Starter_Bacteria_GTDB,
+FUN = function(x) p.adjust(x, method = "BH")
+)
+}
+
+target_name <- unique(sub_result$Starter_Bacteria_GTDB)[1]
+
+sp_mat <- matrix(sub_result$Rho, ncol = 1)
+rownames(sp_mat) <- sub_result$Resident_Bacteria_GTDB
+colnames(sp_mat) <- target_name
+
+sp_p <- matrix(sub_result$pval, ncol = 1)
+rownames(sp_p) <- rownames(sp_mat)
+colnames(sp_p) <- colnames(sp_mat)
+
+sp_fdr <- matrix(sub_result$sp_fdr, ncol = 1)
+rownames(sp_fdr) <- rownames(sp_mat)
+colnames(sp_fdr) <- colnames(sp_mat)
+
+metabo_mat <- as.matrix(sub_result[, paste0(metabo_cols, "_rho"), drop = FALSE])
+metabo_p <- as.matrix(sub_result[, paste0(metabo_cols, "_p"), drop = FALSE])
+metabo_fdr <- as.matrix(sub_result[, paste0(metabo_cols, "_fdr"), drop = FALSE])
+
+cyto_mat <- as.matrix(sub_result[, paste0(cytokine_list, "_rho"), drop = FALSE])
+cyto_p <- as.matrix(sub_result[, paste0(cytokine_list, "_p"), drop = FALSE])
+cyto_fdr <- as.matrix(sub_result[, paste0(cytokine_list, "_fdr"), drop = FALSE])
+
+colnames(metabo_mat) <- metabo_cols
+colnames(metabo_p) <- metabo_cols
+colnames(metabo_fdr) <- metabo_cols
+
+colnames(cyto_mat) <- cytokine_list
+colnames(cyto_p) <- cytokine_list
+colnames(cyto_fdr) <- cytokine_list
+
+rownames(metabo_mat) <- rownames(sp_mat)
+rownames(metabo_p) <- rownames(sp_mat)
+rownames(metabo_fdr) <- rownames(sp_mat)
+
+rownames(cyto_mat) <- rownames(sp_mat)
+rownames(cyto_p) <- rownames(sp_mat)
+rownames(cyto_fdr) <- rownames(sp_mat)
+
+clean_names <- gsub("\[ID:(\d+)\]", "\1", rownames(sp_mat))
+
+colnames(sp_mat) <- gsub("\[ID:(\d+)\]", "\1", colnames(sp_mat))
+colnames(sp_p) <- gsub("\[ID:(\d+)\]", "\1", colnames(sp_mat))
+colnames(sp_fdr) <- colnames(sp_mat)
+
+rownames(sp_mat) <- clean_names
+rownames(sp_p) <- clean_names
+rownames(sp_fdr) <- clean_names
+
+rownames(metabo_mat) <- clean_names
+rownames(metabo_p) <- clean_names
+rownames(metabo_fdr) <- clean_names
+
+rownames(cyto_mat) <- clean_names
+rownames(cyto_p) <- clean_names
+rownames(cyto_fdr) <- clean_names
+
+col_sp <- colorRamp2(c(-0.1, 0, 0.1), c("#9BC4E2", "white", "#E68795"))
+col_metabo <- colorRamp2(c(-0.2, 0, 0.2), c("#2166AC", "#F7F7F7", "#B2182B"))
+col_cyto <- colorRamp2(c(-0.1, 0, 0.1), c("skyblue", "white", "pink"))
+
+sp_show <- matrix("NS", nrow = nrow(sp_mat), ncol = ncol(sp_mat))
+rownames(sp_show) <- rownames(sp_mat)
+colnames(sp_show) <- colnames(sp_mat)
+
+sp_show[sp_p < 0.05 & sp_mat > 0] <- "Positive"
+sp_show[sp_p < 0.05 & sp_mat < 0] <- "Negative"
+
+keep_idx <- sp_show[, 1] %in% c("Positive", "Negative")
+
+sp_show <- sp_show[keep_idx, , drop = FALSE]
+sp_mat <- sp_mat[keep_idx, , drop = FALSE]
+sp_p <- sp_p[keep_idx, , drop = FALSE]
+sp_fdr <- sp_fdr[keep_idx, , drop = FALSE]
+
+metabo_mat <- metabo_mat[keep_idx, , drop = FALSE]
+metabo_p <- metabo_p[keep_idx, , drop = FALSE]
+metabo_fdr <- metabo_fdr[keep_idx, , drop = FALSE]
+
+cyto_mat <- cyto_mat[keep_idx, , drop = FALSE]
+cyto_p <- cyto_p[keep_idx, , drop = FALSE]
+cyto_fdr <- cyto_fdr[keep_idx, , drop = FALSE]
+
+sp_col <- c("Negative"="#6FA8DC","NS"="white","Positive"="#D96B7B")
+
+hm_sp <- Heatmap(
+sp_show,
+name = "Starter\nassociation",
+cluster_rows = TRUE,
+show_row_dend = FALSE,
+cluster_columns = FALSE,
+column_names_rot = 45,
+row_names_side = "left",
+height = nrow(sp_show) * unit(1.8, "mm"),
+width = ncol(sp_show) * unit(2, "mm"),
+column_names_gp = gpar(fontsize = 5),
+row_names_gp = gpar(fontsize = 5),
+col = sp_col,
+rect_gp = gpar(col = "white", lwd = 0.3),
+heatmap_legend_param = list(
+title_gp = gpar(fontsize = 5),
+labels_gp = gpar(fontsize = 5),
+grid_width = unit(1.5, "mm")
+)
+)
+
+hm_metabo <- Heatmap(
+metabo_mat,
+name = "SCFA Spearman’s rho",
+cluster_rows = TRUE,
+show_row_dend = FALSE,
+cluster_columns = FALSE,
+column_names_rot = 45,
+show_row_names = FALSE,
+height = nrow(metabo_mat) * unit(1.8, "mm"),
+width = ncol(metabo_mat) * unit(2, "mm"),
+column_names_gp = gpar(fontsize = 5),
+col = col_metabo,
+na_col = "grey95",
+heatmap_legend_param = list(
+title = "P < 0.05, FDR < 0.05\nSpearman’s rho (SCFAs)",
+title_gp = gpar(fontsize = 5),
+labels_gp = gpar(fontsize = 5),
+grid_width = unit(1.5, "mm")
+),
+cell_fun = function(j, i, x, y, width, height, fill) {
+if (!is.na(metabo_p[i, j]) && metabo_p[i, j] < 0.05) {
+if (!is.na(metabo_fdr[i, j]) && metabo_fdr[i, j] < 0.05) {
+grid.text("", x, y, gp = gpar(fontsize = 5))
+} else {
+grid.text("", x, y, gp = gpar(fontsize = 5))
+}
+}
+}
+)
+
+hm_cyto <- Heatmap(
+cyto_mat,
+name = "cytokine Spearman’s rho",
+cluster_rows = TRUE,
+show_row_dend = FALSE,
+cluster_columns = FALSE,
+column_names_rot = 45,
+show_row_names = FALSE,
+height = nrow(cyto_mat) * unit(1.8, "mm"),
+width = ncol(cyto_mat) * unit(2, "mm"),
+column_names_gp = gpar(fontsize = 5),
+col = col_cyto,
+na_col = "grey95",
+heatmap_legend_param = list(
+title = "P < 0.05, FDR < 0.05\nSpearman’s rho (Cytokines)",
+title_gp = gpar(fontsize = 5),
+labels_gp = gpar(fontsize = 5),
+grid_width = unit(1.5, "mm")
+),
+cell_fun = function(j, i, x, y, width, height, fill) {
+if (!is.na(cyto_p[i, j]) && cyto_p[i, j] < 0.05) {
+if (!is.na(cyto_fdr[i, j]) && cyto_fdr[i, j] < 0.05) {
+grid.text("", x, y, gp = gpar(fontsize = 5))
+} else {
+grid.text("", x, y, gp = gpar(fontsize = 5))
+}
+}
+}
+)
+
+pdf(paste0("Sfig6_", tr, ".pdf"),
+family = "Helvetica",
+width = 6,
+height = 11.69)
+
+draw(hm_sp + hm_metabo + hm_cyto, merge_legend = TRUE)
+dev.off()
+}
+
+for (tr in key_names) {
+plot_one_heatmap(tr)
+}

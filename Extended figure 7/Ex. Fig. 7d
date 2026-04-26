@@ -1,0 +1,128 @@
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(scales)
+library(gridExtra)
+library(openxlsx)
+
+df= read.xlsx("Supplementary Tables_260405.xlsx",
+sheet="KEGGID_enrich_20260115_FDR01sel",
+check.names = F,
+sep.names = " ")
+
+df <- df[df$Erich == "up_regulated",]
+df=df[df$metadata %in% unique(df$metadata)[1:23],]
+
+target_pathways <- c(
+"Lipopolysaccharide biosynthesis",
+"Biofilm formation - Escherichia coli",
+"Biosynthesis of siderophore group nonribosomal peptides"
+)
+
+df_filtered <- df %>% filter(Description %in% target_pathways)
+
+carb <- c("Rice","Bread","Noodles","Soft drinks")
+
+factor_colors <- c(
+"Carbohydrate" = "#FF69B4",
+"Other factors" = "grey70"
+)
+
+df_filtered$qvalue <- -log10(df_filtered$FDR)
+df_filtered$dis <- sqrt(df_filtered$qvalue * df_filtered$RichFactor)
+df_filtered_all <- df_filtered[df_filtered$FDR < 0.05, ]
+
+count_range <- range(df_filtered_all$Count, na.rm = TRUE)
+
+plot_bubble <- function(data, title_text, count_range) {
+
+data$qvalue <- -log10(data$FDR)
+data$dis <- sqrt(data$qvalue * data$RichFactor)
+
+data_filtered <- data[data$FDR < 0.05, ]
+
+if(nrow(data_filtered) == 0) {
+return(NULL)
+}
+
+data_filtered$metadata_plot <- ifelse(data_filtered$metadata %in% carb,
+"Carbohydrate","Other factors")
+
+data_filtered$label <- data_filtered$metadata
+
+ggplot(data_filtered, aes(x = qvalue, y = RichFactor, color = metadata_plot)) +
+geom_point(alpha = 0.8, aes(size = Count)) +
+geom_text_repel(
+aes(label = label),
+size = 5 / .pt,
+max.overlaps = 50,
+box.padding = 0.3,
+point.padding = 0.2,
+segment.color = "grey50"
+) +
+scale_color_manual(values = factor_colors) +
+scale_size_continuous(
+limits = count_range
+)+
+scale_x_continuous(
+labels = function(x) {
+sapply(x, function(v) {
+if (is.na(v)) return(NA)
+
+```
+      num <- 10^(-v)
+      exp <- floor(log10(num))
+      coef <- round(num / (10^exp), 1)
+      
+      if (coef == 1) {
+        bquote(10^.(exp))
+      } else {
+        bquote(.(coef) %*% 10^.(exp))
+      }
+    })
+  }
+)+
+theme_minimal() +
+labs(
+  title = title_text,
+  x = "FDR",
+  y = "Rich Factor",
+  color = "Lifestyle Factor",
+  size = "Number of KOs"
+) +
+theme(
+  text = element_text(size = 5),
+  legend.position = "right",
+  legend.text = element_text(size = 5),
+  legend.title = element_text(size = 5),
+  axis.title = element_text(size = 5),
+  axis.text = element_text(size = 5),
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_line(linewidth = 0.3, color = "grey90"),
+  plot.title = element_text(hjust = 0.5, size = 5, face = "bold")
+)
+```
+
+}
+
+plot_list <- list()
+for (pathway in target_pathways) {
+data_subset <- df_filtered %>% filter(Description == pathway)
+if(nrow(data_subset) > 0) {
+plot <- plot_bubble(data_subset, pathway, count_range)
+if(!is.null(plot)) {
+plot_list[[pathway]] <- plot
+}
+}
+}
+
+num_plots <- length(plot_list)
+num_rows <- ceiling(num_plots / 3)
+
+pdf("Sfig7D.pdf", width = 8, height = num_rows * 1.8)
+
+do.call(grid.arrange, c(plot_list, ncol = 3))
+
+dev.off()
+
+write.csv(df_filtered_all, "Sfig7D.csv", row.names = FALSE)

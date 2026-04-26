@@ -1,0 +1,153 @@
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(openxlsx)
+
+KO_list <- c("K01136","K01137","K01205","K01197","K12373",
+"K01206","K15923","K01190",
+"K01186")
+
+ko_labels <- c("K01136" = "iduronate-2-sulfatase K01136",
+"K01137" = "iduronate-2-sulfatase K01137",
+"K01205" = "alpha-N-acetylglucosaminidase K01205",
+"K01197" = "hyaluronidase K01197",
+"K12373" = "hexosaminidase K12373",
+"K01206" = "alpha-L-fucosidase K01206",
+"K15923" = "alpha-L-fucosidase K15923",
+"K01190" = "beta-galactosidase K01190",
+"K01186" = "sialidase / neuraminidase K01186")
+
+sp_list <- c(
+"Bacteroides uniformis [ID:00855]",
+"Barnesiella intestinihominis [ID:03595]",
+"Odoribacter splanchnicus [ID:03697]",
+"Ruminococcus_B gnavus [ID:01594]",
+"Faecalimonas phoceensis [ID:03689]"
+)
+
+cor_df <- read.xlsx("stable/Supplementary Tables_260405.xlsx",
+sheet="Fig.5C_data",
+check.names = F,
+sep.names = " ")
+
+cor_df$KO <- factor(cor_df$KO, levels = KO_list)
+
+cor_wide <- cor_df %>%
+select(GTDB, NCBI, KO, Rho, P, FDR) %>%
+pivot_wider(
+names_from = KO,
+values_from = c(Rho, P, FDR),
+names_glue = "{KO}_{.value}"
+)
+
+ordered_cols <- c(
+"GTDB", "NCBI",
+unlist(lapply(KO_list, function(k){
+c(paste0(k, "_Rho"),
+paste0(k, "_P"),
+paste0(k, "_FDR"))
+}))
+)
+
+cor_wide <- cor_wide %>%
+select(all_of(ordered_cols))
+
+write.csv(cor_wide, "fig5c.csv", row.names = FALSE)
+
+cor_df <- read.xlsx("stable/Supplementary Tables_260405.xlsx",
+sheet="Fig.5C_data",
+check.names = F,
+sep.names = " ")
+
+cor_sub <- cor_df %>%
+select(GTDB, KO, Rho, P, FDR)
+
+mat_rho <- cor_sub %>%
+select(GTDB, KO, Rho) %>%
+pivot_wider(names_from = KO, values_from = Rho) %>%
+column_to_rownames("GTDB") %>%
+.[sp_list[sp_list %in% rownames(.)], KO_list[KO_list %in% colnames(.)], drop=FALSE] %>%
+as.matrix()
+
+mat_p <- cor_sub %>%
+select(GTDB, KO, P) %>%
+pivot_wider(names_from = KO, values_from = P) %>%
+column_to_rownames("GTDB") %>%
+.[rownames(mat_rho), colnames(mat_rho), drop=FALSE] %>%
+as.matrix()
+
+mat_q <- cor_sub %>%
+select(GTDB, KO, FDR) %>%
+pivot_wider(names_from = KO, values_from = FDR) %>%
+column_to_rownames("GTDB") %>%
+.[rownames(mat_rho), colnames(mat_rho), drop=FALSE] %>%
+as.matrix()
+
+clean_rownames <- function(mat){
+rownames(mat) <- gsub("[ID:(\d+)\]", "\1", rownames(mat))
+mat
+}
+
+mat_rho <- clean_rownames(mat_rho)
+mat_p <- clean_rownames(mat_p)
+mat_q <- clean_rownames(mat_q)
+
+colnames(mat_rho) <- ko_labels[colnames(mat_rho)]
+colnames(mat_p) <- ko_labels[colnames(mat_p)]
+colnames(mat_q) <- ko_labels[colnames(mat_q)]
+
+col_breaks_rho <- c(-0.5,-0.3,-0.1,0,0.1,0.3,0.5)
+
+col_fun_rho <- colorRamp2(
+col_breaks_rho,
+c("#1a3a5c","#2d6a9f","#a8c8e8","white","salmon1","salmon2","salmon3")
+)
+
+make_cell_fun_spearman <- function(qmat, pmat){
+function(j, i, x, y, width, height, fill){
+q <- qmat[i,j]
+p <- pmat[i,j]
+if(!is.na(q) && q < 0.05){
+grid.text("**", x, y, vjust=0.8, gp=gpar(fontsize=3.25))
+} else if(!is.na(p) && p < 0.05){
+grid.text("*", x, y, vjust=0.8, gp=gpar(fontsize=3.25))
+}
+}
+}
+
+legend_param_rho <- list(
+title_gp = gpar(fontsize=5),
+labels_gp = gpar(fontsize=5),
+grid_height = unit(1.75,"mm"),
+grid_width = unit(1.75,"mm"),
+legend_height = unit(14,"mm"),
+at = c(-0.5,-0.3,0,0.3,0.5),
+tick_length = unit(0.5,"mm"),
+background_gp = gpar(lwd=0.25)
+)
+
+hm_main <- Heatmap(
+mat_rho,
+name = "Spearman Rho\n(P: * < 0.05, FDR: ** < 0.05)",
+cluster_columns = FALSE,
+cluster_rows = FALSE,
+col = col_fun_rho,
+row_names_side = "left",
+show_row_names = TRUE,
+show_column_names = TRUE,
+column_names_rot = 60,
+column_title_gp = gpar(fontsize=5),
+column_names_gp = gpar(fontsize=5),
+row_names_gp = gpar(fontsize=5),
+height = nrow(mat_rho) * unit(2.5,"mm"),
+width = ncol(mat_rho) * unit(2.5,"mm"),
+heatmap_legend_param = legend_param_rho,
+cell_fun = make_cell_fun_spearman(mat_q, mat_p)
+)
+
+pdf("fig5C.pdf", width=8.27, height=11.69, family="Helvetica")
+
+draw(hm_main, padding = unit(c(5,40,15,2),"mm"))
+
+dev.off()
+

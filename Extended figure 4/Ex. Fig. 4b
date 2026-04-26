@@ -1,0 +1,133 @@
+setwd(".")
+
+library(ggplot2)
+library(gridExtra)
+library(ggrepel)
+library(tidyverse)
+library(ggtext)
+library(openxlsx)
+set.seed(123)
+
+df <- read.xlsx("Supplementary Tables_260405.xlsx",
+sheet = "USJP_IBD_causal",
+check.names = F,
+sep.names = " ")
+
+split_data <- split(df, df$Exposure)
+
+plot_list <- list()
+
+for (i in seq_along(split_data)) {
+
+all_data <- split_data[[i]]
+
+if (nrow(all_data) == 0) next
+
+all_data$origin <- all_data$GTDB
+all_data$origin <- gsub("[ID:(\d+)\]", "\1", all_data$origin)
+
+all_data$both_sig <- "Both_causal_P<0.05"
+
+all_data$pickup <- grepl("prausnitzii|saccharivoran", all_data$origin)
+
+temp <- tryCatch({
+cor.test(
+all_data$JP_Avg_causal_mediation_efffect,
+all_data$US_Avg_causal_mediation_efffect,
+method = "spearman",
+exact = TRUE
+)
+}, error = function(e) {
+data.frame(estimate = NA, p.value = NA)
+})
+
+jp_name <- unique(all_data$Exposure_jp)
+us_name <- unique(all_data$Exposure_us)
+
+p <- ggplot(all_data,
+aes(x = JP_Avg_causal_mediation_efffect,
+y = US_Avg_causal_mediation_efffect)) +
+geom_point(alpha = 0.2, aes(color = both_sig), size = 5) +
+geom_smooth(method = "lm", color = "blue", size = 3) +
+geom_segment(
+data = subset(all_data, pickup == TRUE),
+aes(
+x = JP_Avg_causal_mediation_efffect,
+y = US_Avg_causal_mediation_efffect,
+xend = JP_Avg_causal_mediation_efffect,
+yend = US_Avg_causal_mediation_efffect
+),
+color = "gray50",
+alpha = 0.5,
+size = 0.5,
+linetype = "dashed"
+) +
+geom_point(
+data = subset(all_data, pickup == TRUE),
+aes(
+x = JP_Avg_causal_mediation_efffect,
+y = US_Avg_causal_mediation_efffect
+),
+color = "red",
+size = 7,
+shape = 1,
+stroke = 1.5
+) +
+geom_text_repel(
+data = subset(all_data, pickup == TRUE),
+aes(label = origin),
+color = "black",
+size = 5,
+hjust = 1.5,
+vjust = 1.5,
+max.overlaps = Inf,
+nudge_x = 0.02 * diff(range(all_data$JP_Avg_causal_mediation_efffect, na.rm = TRUE)),
+nudge_y = 0.02 * diff(range(all_data$US_Avg_causal_mediation_efffect, na.rm = TRUE))
+) +
+ggtitle(paste0(
+"US_16over_", us_name, "*minprev0<br>vs<br>JP*",
+jp_name, "*minprev0<br>causal_indirect_effect_size*"
+)) +
+xlab(paste0("JP ", jp_name, " indirect effect")) +
+ylab(paste0("US ", us_name, " indirect effect")) +
+theme_bw() +
+scale_x_continuous(labels = function(x)
+format(x, scientific = FALSE, digits = 3)) +
+scale_y_continuous(labels = function(y)
+format(y, scientific = FALSE, digits = 3)) +
+theme(
+element_markdown(),
+axis.title.x = element_text(size = rel(2)),
+axis.title.y = element_text(size = rel(2)),
+axis.text.x = element_text(size = rel(2)),
+axis.text.y = element_text(size = rel(2)),
+plot.title = element_markdown(size = rel(1.5)),
+panel.border = element_rect(color = "black", fill = NA, size = 1),
+panel.background = element_rect(fill = "white"),
+plot.background = element_rect(fill = "white")
+) +
+coord_cartesian(clip = "off") +
+scale_color_manual(
+values = c("Both_causal_P<0.05" = "black", "Not" = "black"),
+name = "US vs JP\nCausal both Sig\nor not"
+) +
+annotate(
+"text",
+x = min(all_data$JP_Avg_causal_mediation_efffect, na.rm = TRUE),
+y = max(all_data$US_Avg_causal_mediation_efffect, na.rm = TRUE),
+label = paste(
+"Spearman's rho =", round(temp$estimate, 3),
+"\nP-value =", signif(temp$p.value, 3)
+),
+hjust = 0, vjust = 1, size = 5, color = "black"
+)
+
+plot_list[[i]] <- p
+}
+
+pdf("Sfig4b.pdf",
+width = 27, height = 24)
+
+grid.arrange(grobs = plot_list, ncol = 3)
+
+dev.off()

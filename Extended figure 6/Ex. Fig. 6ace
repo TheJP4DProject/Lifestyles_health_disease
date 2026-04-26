@@ -1,0 +1,208 @@
+library(openxlsx)
+library(dplyr)
+library(tidyr)
+library(igraph)
+library(ggraph)
+library(ggplot2)
+library(gridExtra)
+
+clean_names <- function(x){
+x <- gsub("\[ID:(\d+)\]", " \1", x)
+return(x)
+}
+
+result <- read.csv("network/result_with_cytokine_metabo_NPY.csv",
+stringsAsFactors = FALSE)
+
+
+edges <- result %>%
+mutate(
+Source = clean_names(Starter_bacteria),
+Target = clean_names(Resident_species),
+weight = 0.8,
+edge_color = case_when(
+pval >= 0.05 ~ "grey80",
+Rho > 0.1 ~ "pink",
+Rho < -0.1 ~ "skyblue",
+TRUE ~ "No association"
+)
+) %>%
+filter(pval < 0.05)
+
+plot_network <- function(tr){
+edges_sub <- edges %>% filter(Exposure == tr)
+if(nrow(edges_sub) == 0) return(NULL)
+
+nodes_sub <- data.frame(
+name = unique(c(edges_sub$Source, edges_sub$Target))
+)
+nodes_sub$color <- ifelse(nodes_sub$name %in% edges_sub$Source, "darkred", "black")
+
+g <- graph_from_data_frame(
+edges_sub %>% select(Source, Target, weight, edge_color),
+vertices = nodes_sub,
+directed = FALSE
+)
+
+signif_nodes <- unique(c(edges_sub$Source, edges_sub$Target))
+
+p <- ggraph(g, layout = "fr") +
+geom_edge_link(aes(color = edge_color, width = weight), alpha = 0.8) +
+scale_edge_color_identity() +
+scale_edge_width(range = c(0.8,0.8)) +
+geom_node_point(aes(color = color), size = 2) +
+geom_node_text(aes(label = ifelse(name %in% signif_nodes, name, "")),
+size = 5/ggplot2::.pt) +
+scale_color_identity() +
+theme_void() +
+ggtitle(tr)
+
+return(p)
+}
+
+types <- c("No association","Negative","Positive")
+
+bar_data <- result %>%
+mutate(
+type = case_when(
+pval >= 0.05 ~ "No association",
+Rho > 0 & pval < 0.05 ~ "Positive",
+Rho < 0 & pval < 0.05 ~ "Negative",
+TRUE ~ "No association"
+)
+) %>%
+group_by(Exposure, type) %>%
+summarise(n = n(), .groups = "drop") %>%
+tidyr::complete(Exposure, type = types, fill = list(n = 0)) %>%
+group_by(Exposure) %>%
+mutate(
+total = sum(n),
+ratio = paste0(n, "/", total),
+percent = ifelse(total > 0, n/total*100, 0)
+)
+
+plot_bar_with_labels <- function(df, tr){
+df_sub <- df %>% filter(Exposure == tr)
+df_sub$type <- factor(df_sub$type, levels = types)
+
+p <- ggplot(df_sub, aes(x = type, y = percent, fill = type)) +
+geom_bar(stat = "identity", width = 0.4) +
+geom_text(
+aes(label = paste0(sprintf("%.1f%%", percent), "\n(", ratio, ")")),
+vjust = -0.3,
+lineheight = 0.9,
+size = 5 / ggplot2::.pt
+) +
+scale_fill_manual(values = c(
+"No association" = "grey",
+"Negative" = "#6fa8dc",
+"Positive" = "#d96b7b"
+)) +
+theme_minimal(base_size = 5) +
+theme(
+axis.text = element_text(size = 5),
+axis.title = element_text(size = 5),
+legend.position = "none"
+) +
+labs(x = NULL, y = "Percentage") +
+ggtitle(tr)
+
+return(p)
+}
+
+treat_list <- unique(result$Exposure)
+bar_plots <- lapply(treat_list, function(tr) plot_bar_with_labels(bar_data, tr))
+bar_plots_clean <- bar_plots[!sapply(bar_plots, is.null)]
+
+pdf("sfig5c.pdf", width = 5, height = 1)
+grid.arrange(grobs = bar_plots_clean, nrow = 1, ncol = length(bar_plots_clean))
+dev.off()
+
+bar_out <- bar_data %>%
+arrange(Exposure, factor(type, levels = types)) %>%
+mutate(Data_type = "Bar_summary") %>%
+rename(
+Association_type = type,
+Count = n,
+Total = total,
+Percentage = percent
+) %>%
+select(Data_type, Exposure, Association_type, Count, Total, Percentage)
+
+write.csv(bar_out,
+file = "network_source_data_all.csv",
+row.names = FALSE)
+
+bar_data2 <- result %>%
+mutate(
+type = case_when(
+pval >= 0.05 ~ "No association",
+Rho > 0 & pval < 0.05 ~ "Positive",
+Rho < 0 & pval < 0.05 ~ "Negative",
+TRUE ~ "No association"
+)
+) %>%
+group_by(Exposure, type) %>%
+summarise(
+total = n(),
+n = sum(Butyrate_rho > 0 & Butyrate_p < 0.05, na.rm = TRUE),
+.groups = "drop"
+) %>%
+tidyr::complete(Exposure, type = c("Negative","Positive"),
+fill = list(total = 0, n = 0)) %>%
+mutate(
+ratio = paste0(n, "/", total),
+percent = ifelse(total > 0, n / total * 100, 0)
+)
+
+plot_bar_with_labels2 <- function(df, tr){
+df_sub <- df %>% filter(Exposure == tr)
+df_sub <- df_sub[df_sub$type %in% c("Negative","Positive"),]
+df_sub$type <- factor(df_sub$type, levels = c("Negative","Positive"))
+
+p <- ggplot(df_sub, aes(x = type, y = percent, fill = type)) +
+geom_bar(stat = "identity", width = 0.4) +
+geom_text(
+aes(label = paste0(sprintf("%.1f%%", percent), "\n(", ratio, ")")),
+vjust = -0.3,
+lineheight = 0.9,
+size = 5 / ggplot2::.pt
+) +
+scale_fill_manual(values = c(
+"Negative" = "#6fa8dc",
+"Positive" = "#d96b7b"
+)) +
+theme_minimal(base_size = 5) +
+theme(
+axis.text = element_text(size = 5),
+axis.title = element_text(size = 5),
+legend.position = "none"
+) +
+labs(x = NULL, y = "Butyrate+ %") +
+ggtitle(tr) +
+scale_y_continuous(expand = expansion(mult = c(0, 0.25)))
+
+return(p)
+}
+
+bar_plots2 <- lapply(treat_list, function(tr) plot_bar_with_labels2(bar_data2, tr))
+bar_plots2 <- bar_plots2[!sapply(bar_plots2, is.null)]
+
+pdf("sfig6ace_sub.pdf", width = 5, height = 1)
+grid.arrange(grobs = bar_plots2, nrow = 1, ncol = length(bar_plots2))
+dev.off()
+
+bar_out2 <- bar_data2 %>%
+arrange(Exposure, factor(type, levels = c("Negative","Positive"))) %>%
+mutate(Data_type = "Bar_summary") %>%
+rename(
+Association_type = type,
+Count = n,
+Total = total,
+Percentage = percent
+) %>%
+select(Data_type, Exposure, Association_type, Count, Total, Percentage)
+
+write.csv(bar_out2,
+file = "sfig6ace_sub.csv",
+row.names = FALSE)

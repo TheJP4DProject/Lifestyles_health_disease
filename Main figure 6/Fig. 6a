@@ -1,0 +1,291 @@
+rm(list = ls())
+set.seed(100)
+
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+library(tibble)
+
+par(family = "Helvetica")
+
+metadata <- as.data.frame(read.csv("../meta.atc.filter.csv"))
+metadata <- metadata[!is.na(metadata$METAF), ]
+rownames(metadata) <- metadata$METAF
+
+outcome_cols <- 34:50
+outcome_names <- colnames(metadata)[outcome_cols]
+outcome_names <- outcome_names[outcome_names != "CKD"]
+
+score_sp <- read.csv(
+"../healthindex/model_results_1se_logodds/sp_logodds_scores.csv",
+stringsAsFactors = FALSE,
+row.names = 1
+)
+
+auc_data <- read.csv(
+"../healthindex/model_results_1se_logodds/all_models_auc.csv",
+stringsAsFactors = FALSE
+)
+
+auc_data_sp <- auc_data %>%
+filter(model == "sp")
+
+result_table <- data.frame(
+outcome = outcome_names,
+median_group0 = NA_real_,
+median_group1 = NA_real_,
+log2fc = NA_real_,
+se_group0 = NA_real_,
+se_group1 = NA_real_,
+wilcox_p_raw = NA_real_,
+wilcox_p_display = NA_character_,
+auc = NA_real_,
+ntotal = NA_integer_,
+n0 = NA_integer_,
+n1 = NA_integer_,
+stringsAsFactors = FALSE
+)
+rownames(result_table) <- outcome_names
+
+plot_list <- list()
+
+format_p_value <- function(p) {
+if (is.na(p)) return(NA_character_)
+if (p == 0) {
+return(formatC(.Machine$double.xmin, digits = 2, format = "e"))
+}
+if (p >= 1e-4) {
+return(sprintf("%.4f", p))
+} else {
+return(formatC(p, digits = 2, format = "e"))
+}
+}
+
+for (outcome in outcome_names) {
+
+if (!outcome %in% colnames(score_sp)) next
+
+auc_row <- auc_data_sp[auc_data_sp$outcome == outcome, ]
+if (nrow(auc_row) == 0) next
+
+auc_value <- auc_row$auc[1]
+result_table[outcome, "auc"] <- auc_value
+
+common_samples <- intersect(rownames(score_sp), rownames(metadata))
+
+plot_data <- data.frame(
+score = score_sp[common_samples, outcome],
+outcome_value = metadata[common_samples, outcome]
+)
+
+plot_data <- plot_data[!is.na(plot_data$score) & !is.na(plot_data$outcome_value), ]
+plot_data$outcome_value <- factor(plot_data$outcome_value, levels = c(0, 1))
+
+if (nrow(plot_data) == 0 || length(unique(plot_data$outcome_value)) < 2) next
+
+group0 <- plot_data$score[plot_data$outcome_value == 0]
+group1 <- plot_data$score[plot_data$outcome_value == 1]
+
+se_group0 <- sd(group0, na.rm = TRUE) / sqrt(length(group0))
+se_group1 <- sd(group1, na.rm = TRUE) / sqrt(length(group1))
+
+result_table[outcome, "se_group0"] <- se_group0
+result_table[outcome, "se_group1"] <- se_group1
+
+wilcox_p <- wilcox.test(group1, group0)$p.value
+wilcox_p_display <- format_p_value(wilcox_p)
+
+result_table[outcome, "wilcox_p_raw"] <- wilcox_p
+result_table[outcome, "wilcox_p_display"] <- wilcox_p_display
+
+median_group0 <- median(group0, na.rm = TRUE)
+median_group1 <- median(group1, na.rm = TRUE)
+
+result_table[outcome, "median_group0"] <- median_group0
+result_table[outcome, "median_group1"] <- median_group1
+
+n0 <- length(group0)
+n1 <- length(group1)
+ntotal <- n0 + n1
+
+result_table[outcome, "n0"] <- n0
+result_table[outcome, "n1"] <- n1
+result_table[outcome, "ntotal"] <- ntotal
+
+if (wilcox_p < 0.001) {
+sig_label <- "***"
+} else if (wilcox_p < 0.01) {
+sig_label <- "**"
+} else if (wilcox_p < 0.05) {
+sig_label <- "*"
+} else {
+sig_label <- "ns"
+}
+
+y_data_min <- min(plot_data$score, na.rm = TRUE)
+y_data_max <- max(plot_data$score, na.rm = TRUE)
+y_data_range <- y_data_max - y_data_min
+
+if (y_data_range < 0.5) {
+y_padding <- y_data_range * 0.5
+} else if (y_data_range < 1) {
+y_padding <- y_data_range * 0.35
+} else if (y_data_range < 2) {
+y_padding <- y_data_range * 0.25
+} else {
+y_padding <- y_data_range * 0.15
+}
+
+y_min <- y_data_min - y_padding
+y_max <- y_data_max + y_padding
+y_range <- y_max - y_min
+
+if (y_range < 2) {
+y_mid <- (y_min + y_max) / 2
+y_min <- y_mid - 1
+y_max <- y_mid + 1
+step <- 1
+y_breaks <- seq(floor(y_min), ceiling(y_max), by = step)
+} else if (y_range < 4) {
+step <- 1
+y_breaks <- seq(floor(y_min), ceiling(y_max), by = step)
+} else if (y_range < 6) {
+step <- 1
+y_breaks <- seq(floor(y_min), ceiling(y_max), by = step)
+} else if (y_range < 10) {
+step <- 2
+y_breaks <- seq(floor(y_min / step) * step, ceiling(y_max / step) * step, by = step)
+} else {
+step <- ceiling(y_range / 5)
+y_breaks <- seq(floor(y_min / step) * step, ceiling(y_max / step) * step, by = step)
+}
+
+while (length(y_breaks) > 5) {
+step <- step + 1
+y_breaks <- seq(floor(y_min / step) * step, ceiling(y_max / step) * step, by = step)
+}
+
+sig_y_pos <- y_max - (y_max - y_min) * 0.1
+
+violin_plot <- ggplot(plot_data, aes(x = 1, y = score)) +
+geom_violin(
+data = subset(plot_data, outcome_value == 0),
+aes(x = 1, y = score),
+fill = "#91bfdb",
+position = position_nudge(x = -0.12),
+width = 0.4,
+alpha = 0.6
+) +
+geom_violin(
+data = subset(plot_data, outcome_value == 1),
+aes(x = 1, y = score),
+fill = "#fc8d59",
+position = position_nudge(x = 0.12),
+width = 0.4,
+alpha = 0.6
+) +
+geom_boxplot(
+data = subset(plot_data, outcome_value == 0),
+aes(x = 1, y = score),
+width = 0.2,
+position = position_nudge(x = -0.12),
+outlier.shape = NA
+) +
+geom_boxplot(
+data = subset(plot_data, outcome_value == 1),
+aes(x = 1, y = score),
+width = 0.2,
+position = position_nudge(x = 0.12),
+outlier.shape = NA
+) +
+annotate("text",
+x = 1,
+y = sig_y_pos,
+label = sig_label,
+size = 5 / 2.845) +
+scale_x_continuous(breaks = NULL) +
+scale_y_continuous(breaks = y_breaks, limits = c(y_min, y_max)) +
+theme_minimal(base_size = 5) +
+theme(
+axis.title = element_blank(),
+axis.text.x = element_blank(),
+axis.text = element_text(size = 5),
+legend.position = "none",
+panel.grid.minor = element_blank(),
+panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.4)
+)
+
+title_grob <- grobTree(
+rectGrob(gp = gpar(fill = "#E6E6E6", col = "black", lwd = 0.6)),
+textGrob(outcome, gp = gpar(fontsize = 5, fontface = "bold"))
+)
+
+auc_label <- paste0("AUC = ", formatC(auc_value, digits = 3, format = "fg"))
+
+auc_grob <- grobTree(
+rectGrob(gp = gpar(fill = "#DCEEFF", col = "black", lwd = 0.6)),
+textGrob(auc_label, gp = gpar(fontsize = 5))
+)
+
+pval_label <- if (!is.na(wilcox_p_display)) {
+paste0("p = ", wilcox_p_display)
+} else {
+"p = NA"
+}
+
+pval_grob <- grobTree(
+rectGrob(gp = gpar(fill = "#FFE6D5", col = "black", lwd = 0.6)),
+textGrob(pval_label, gp = gpar(fontsize = 5))
+)
+
+panel_combined <- arrangeGrob(
+title_grob,
+auc_grob,
+pval_grob,
+violin_plot,
+ncol = 1,
+heights = c(0.12, 0.10, 0.10, 0.68)
+)
+
+panel_final <- grobTree(
+rectGrob(gp = gpar(fill = NA, col = "black", lwd = 1)),
+panel_combined
+)
+
+plot_list[[outcome]] <- panel_final
+}
+
+pdf("fig6a.pdf", width = 8, height = 1.3)
+grid.arrange(grobs = plot_list, nrow = 1)
+dev.off()
+
+result_table_final <- result_table[!is.na(result_table$auc), ]
+
+result_table_final <- result_table_final[, c(
+"median_group0",
+"se_group0",
+"median_group1",
+"se_group1",
+"wilcox_p_raw",
+"wilcox_p_display",
+"auc",
+"ntotal",
+"n0",
+"n1"
+)]
+
+colnames(result_table_final) <- c(
+"Median_Group0",
+"SE_Group0",
+"Median_Group1",
+"SE_Group1",
+"P_value_raw",
+"P_value_display",
+"AUC",
+"N_total",
+"N_group0",
+"N_group1"
+)
+
+write.csv(result_table_final, "fig6a.csv", row.names = TRUE)

@@ -1,0 +1,291 @@
+library(dplyr)
+library(ggplot2)
+
+setwd(".")
+
+metadata <- as.data.frame(read.csv("meta.atc.filter.csv"))
+metadata <- metadata[!is.na(metadata$METAF), ]
+rownames(metadata) <- metadata$METAF
+
+outcome_cols <- 34:50
+outcome_namess <- colnames(metadata)[outcome_cols]
+outcome_namess <- outcome_namess[outcome_namess != "CKD"]
+
+disease_order <- c(
+"General.Health",
+"IBD",
+"IBS",
+"Liver.cirrhosis",
+"T2D",
+"Dyslipidemia",
+"Hypertension",
+"Hyperuricemia",
+"ACS",
+"CHF",
+"Stroke",
+"Depression",
+"Rheumatoid.arthritis",
+"Collagen.disease",
+"Asthma",
+"COPD"
+)
+
+name_map <- c(
+"General.Health" = "General health",
+"IBD" = "IBD",
+"IBS" = "IBS",
+"Liver.cirrhosis" = "Liver cirrhosis",
+"T2D" = "T2D",
+"Dyslipidemia" = "Dyslipidemia",
+"Hypertension" = "Hypertension",
+"Hyperuricemia" = "Hyperuricemia",
+"ACS" = "IHD",
+"CHF" = "Heart failure",
+"Stroke" = "Stroke",
+"Depression" = "Depression",
+"Rheumatoid.arthritis" = "Rheumatoid arthritis",
+"Collagen.disease" = "Collagen disease",
+"Asthma" = "Asthma",
+"COPD" = "COPD"
+)
+
+causal_f <- read.csv("causal/6803_causal_motus_260328.csv")
+
+causal_f <- causal_f[
+(causal_f$Avg_causal_mediation_qval < 0.05) &
+(causal_f$Inv_Avg_causal_mediation_pval >= 0.05),
+]
+
+causal_mediators <- causal_f %>%
+select(Disease, Mediater) %>%
+distinct()
+
+features_sp <- read.csv(
+"healthindex/model_results_1se_logodds/sp_features.csv",
+stringsAsFactors = FALSE
+)
+
+sample_rds <- list.files(
+"healthindex/model_results_1se_logodds/rds_files",
+pattern = "_sp\.rds$",
+full.names = TRUE
+)[1]
+
+tmp <- readRDS(sample_rds)
+
+all_candidates <- rownames(tmp$cvfit$glmnet.fit$beta)
+all_candidates <- all_candidates[all_candidates != "(Intercept)"]
+
+outcome_names <- unique(features_sp$outcome)
+outcome_names <- outcome_names[outcome_names != "CKD"]
+
+result_list <- list()
+
+for (dis in outcome_names) {
+
+mediators <- causal_mediators$Mediater[
+causal_mediators$Disease == dis
+]
+
+if (length(mediators) == 0) next
+
+selected_vec <- features_sp$feature[
+features_sp$outcome == dis
+]
+
+not_selected_vec <- all_candidates[
+!all_candidates %in% selected_vec
+]
+
+a <- sum(selected_vec %in% mediators)
+b <- length(selected_vec) - a
+c <- sum(not_selected_vec %in% mediators)
+d <- length(not_selected_vec) - c
+
+a_raw <- a
+b_raw <- b
+c_raw <- c
+d_raw <- d
+
+if (any(c(a, b, c, d) == 0)) {
+a <- a + 0.5
+b <- b + 0.5
+c <- c + 0.5
+d <- d + 0.5
+}
+
+OR <- (a * d) / (b * c)
+
+log_OR <- log(OR)
+SE <- sqrt(1 / a + 1 / b + 1 / c + 1 / d)
+
+CI_low <- exp(log_OR - 1.96 * SE)
+CI_hi <- exp(log_OR + 1.96 * SE)
+
+tab <- matrix(
+c(a_raw, b_raw, c_raw, d_raw),
+nrow = 2,
+byrow = TRUE
+)
+
+p_val <- fisher.test(tab)$p.value
+
+result_list[[dis]] <- data.frame(
+Disease = dis,
+a = a_raw,
+b = b_raw,
+c = c_raw,
+d = d_raw,
+aab = a_raw / (a_raw + b_raw),
+OR = OR,
+log_OR = log_OR,
+SE = SE,
+CI_low = CI_low,
+CI_hi = CI_hi,
+p_val = p_val,
+stringsAsFactors = FALSE
+)
+}
+
+result_df <- bind_rows(result_list)
+
+result_df$Disease <- factor(
+result_df$Disease,
+levels = disease_order
+)
+
+result_df <- result_df %>%
+arrange(match(Disease, disease_order))
+
+result_df$Disease_label <- name_map[
+as.character(result_df$Disease)
+]
+
+result_df$Disease_label <- factor(
+result_df$Disease_label,
+levels = name_map[disease_order]
+)
+
+result_df$p_label <- sprintf("%.2e", result_df$p_val)
+
+label_x <- max(result_df$CI_hi, na.rm = TRUE) * 1.1
+
+output_df <- result_df[, c(
+"Disease_label",
+"a", "b", "c", "d", "aab",
+"OR",
+"CI_low", "CI_hi",
+"log_OR",
+"SE",
+"p_val"
+)]
+
+colnames(output_df) <- c(
+"Disease",
+"a_mediator_lasso",
+"b_nonmediator_lasso",
+"c_mediator_notselect",
+"d_nonmediator_notselect",
+"mediator in Lasso a/(a+b)",
+"OR = (a*d)/(b*c)",
+"CI_low",
+"CI_hi",
+"log_OR",
+"SE",
+"p_value (Fisher)"
+)
+
+write.csv(output_df, "fig5d.csv", row.names = FALSE)
+
+cat("Saved: fig5d.csv\n")
+
+p <- ggplot(result_df, aes(x = OR, y = Disease_label)) +
+geom_vline(
+xintercept = 1,
+linetype = "dashed",
+color = "gray50",
+linewidth = 0.4
+) +
+geom_errorbarh(
+aes(xmin = CI_low, xmax = CI_hi),
+height = 0.3,
+linewidth = 0.3,
+color = "black"
+) +
+geom_point(
+aes(color = CI_low > 1),
+shape = 15,
+size = 1
+) +
+scale_color_manual(
+values = c(
+"TRUE" = "#e05c4b",
+"FALSE" = "#4b7be0"
+),
+guide = "none"
+) +
+geom_text(
+aes(x = label_x, label = p_label),
+hjust = 0,
+size = 2
+) +
+scale_x_log10() +
+scale_y_discrete(limits = rev) +
+labs(
+title = "Enrichment of Causal Mediators among Lasso-Selected Species",
+subtitle = "Odds ratio (OR) = (a*d)/(b*c); P from Fisher's exact test",
+x = "Odds Ratio (log scale)",
+y = NULL
+) +
+coord_cartesian(clip = "off") +
+theme_classic(base_size = 5) +
+theme(
+axis.text.y = element_text(size = 5),
+plot.title = element_text(size = 5, face = "bold"),
+plot.subtitle = element_text(size = 5, color = "gray40"),
+plot.margin = margin(10, 220, 10, 160),
+panel.background = element_blank(),
+panel.grid = element_blank()
+)
+
+ggsave(
+"fig6d.pdf",
+p,
+width = 6.5,
+height = 3
+)
+
+cat("Saved: fig5d.pdf\n")
+
+source_df <- result_df %>%
+mutate(
+Disease = as.character(Disease),
+enrichment_ratio = a / (a + b),
+OR = OR,
+log_OR = log_OR,
+SE = SE,
+CI_low = CI_low,
+CI_hi = CI_hi,
+p_value = p_val,
+Disease_label = as.character(Disease_label)
+) %>%
+select(
+Disease,
+Disease_label,
+a, b, c, d,
+enrichment_ratio,
+OR,
+log_OR,
+SE,
+CI_low,
+CI_hi,
+p_value
+)
+
+write.csv(
+source_df,
+"fig6d.csv",
+row.names = FALSE
+)
+
+cat("Saved: fig5d_source_data.csv\n")

@@ -1,0 +1,415 @@
+
+rm(list=ls())
+set.seed(100)
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(openxlsx)
+library(reshape2)
+par(family="Helvetica")
+
+SP_list <- read.xlsx("Supplementary Tables_260405.xlsx",
+sheet="S13DOriSPSCFACyto",
+check.names = F,
+sep.names = " ")
+
+SP_df <- data.frame(feature = SP_list$GTDB)
+
+tax_table <- read.xlsx("mOTUs_3.0.0_GTDB_tax.xlsx", sheet=1)
+colnames(tax_table)[1] <- "ref_id"
+tax_table$motu_id <- str_extract(tax_table$ref_id, "(?<=v3_)\d{5}")
+tax_table$Phylum_clean <- gsub("^p__","", tax_table$Phylum)
+tax_table$Class_clean <- gsub("^c__","", tax_table$Class)
+tax_table$Order_clean <- gsub("^o__","", tax_table$Order)
+tax_table$Family_clean <- gsub("^f__","", tax_table$Family)
+tax_table$Genus_clean <- gsub("^g__","", tax_table$Genus)
+tax_table$Species_clean<- gsub("^s__","", tax_table$Species)
+
+maa_raw <- read.xlsx("Supplementary Tables_260405.xlsx",
+sheet="S6",
+check.names = F,
+sep.names = " ")
+colnames(maa_raw)[2]="feature"
+colnames(maa_raw)[3]="metadata"
+
+life_meta <- c("Vegetables","Fruits","Mushrooms","Coffee","Green tea","Vinegar",
+"Tofu","Natto","Miso","Pickles","Kimchi","Yogurt","Milk",
+"Meat","Processed meat","Seafood","Eggs","Dressing","Rice",
+"Bread","Noodles","Soft drinks","Alcohol","Smoking",
+"Weak physical activity","Moderate physical activity","Strong physical activity","Sitting down ≥ 9.5h")
+dis_meta <- c("General health","Inflammatory Bowel Disease (IBD)","Irritable Bowel Syndrome (IBS)","Liver cirrhosis",
+"Type 2 Diabetes (T2D)","Dyslipidemia","Hypertension","Hyperuricemia",
+"Ischemic Heart Disease (IHD)","Heart failure","Stroke",
+"Depression","Rheumatoid arthritis","Collagen disease","Asthma",
+"Chronic Obstructive Pulmonary Disease (COPD)")
+all_meta <- c(life_meta, dis_meta)
+
+make_wide <- function(df, metas, value_col){
+df %>%
+filter(metadata %in% metas) %>%
+select(feature, metadata, all_of(value_col)) %>%
+pivot_wider(names_from=metadata, values_from=all_of(value_col)) %>%
+column_to_rownames("feature") %>%
+.[, metas[metas %in% colnames(.)], drop=FALSE]
+}
+
+maa_raw_filtered <- maa_raw %>% filter(feature %in% SP_df$feature)
+
+maa_coef <- make_wide(maa_raw_filtered, all_meta, "coef")
+maa_pval <- make_wide(maa_raw_filtered, all_meta, "pval")
+maa_qval <- make_wide(maa_raw_filtered, all_meta, "FDR")
+
+maa_coef[is.na(maa_coef)] <- 0
+maa_pval[is.na(maa_pval)] <- 1
+maa_qval[is.na(maa_qval)] <- 1
+
+colnames_map <- c(
+"Inflammatory Bowel Disease (IBD)" = "IBD",
+"Irritable Bowel Syndrome (IBS)" = "IBS",
+"Type 2 Diabetes (T2D)" = "T2D",
+"Ischemic Heart Disease (IHD)" = "IHD",
+"Chronic Obstructive Pulmonary Disease (COPD)" = "COPD"
+)
+
+colnames(maa_coef) <- ifelse(colnames(maa_coef) %in% names(colnames_map),
+colnames_map[colnames(maa_coef)],
+colnames(maa_coef))
+colnames(maa_pval) <- ifelse(colnames(maa_pval) %in% names(colnames_map),
+colnames_map[colnames(maa_pval)],
+colnames(maa_pval))
+colnames(maa_qval) <- ifelse(colnames(maa_qval) %in% names(colnames_map),
+colnames_map[colnames(maa_qval)],
+colnames(maa_qval))
+
+all_meta <- colnames(maa_coef)
+
+sp_ids <- str_extract(SP_list$GTDB, "(?<=\[ID:)\d{5}(?=\])")
+tax_matched <- tax_table[match(sp_ids, tax_table$motu_id), ]
+
+sort_df <- data.frame(
+feature = SP_list$GTDB,
+motu_id = sp_ids,
+Phylum = ifelse(is.na(tax_matched$Phylum_clean), "Unknown", tax_matched$Phylum_clean),
+Class = ifelse(is.na(tax_matched$Class_clean), "Unknown", tax_matched$Class_clean),
+Order = ifelse(is.na(tax_matched$Order_clean), "Unknown", tax_matched$Order_clean),
+Family = ifelse(is.na(tax_matched$Family_clean), "Unknown", tax_matched$Family_clean),
+Genus = ifelse(is.na(tax_matched$Genus_clean), "Unknown", tax_matched$Genus_clean),
+Species = ifelse(is.na(tax_matched$Species_clean),"Unknown", tax_matched$Species_clean),
+oral = SP_list$Oral-derived bacteria,
+stringsAsFactors=FALSE) %>%
+arrange(Phylum, Class, Order, Family, Genus, Species)
+
+maa_coef <- maa_coef[sort_df$feature, ]
+maa_pval <- maa_pval[sort_df$feature, ]
+maa_qval <- maa_qval[sort_df$feature, ]
+
+clean_rn <- function(mat){
+rownames(mat) <- gsub("\[ID:(\d+)\]","\1", rownames(mat))
+mat
+}
+maa_coef <- clean_rn(maa_coef)
+maa_pval <- clean_rn(maa_pval)
+maa_qval <- clean_rn(maa_qval)
+sort_df$rowname <- gsub("\[ID:(\d+)\]","\1", sort_df$feature)
+
+phylum_levels <- unique(sort_df$Phylum)
+n_phylum <- length(phylum_levels)
+set.seed(42)
+phylum_cols <- setNames(
+colorspace::qualitative_hcl(n_phylum, palette="Dark 3"),
+phylum_levels)
+
+oral_colors <- c("0" = "white", "1" = "#FF6B6B")
+
+left_anno <- rowAnnotation(
+Oral = as.character(sort_df$oral),
+Phylum = sort_df$Phylum,
+col = list(Oral = oral_colors, Phylum = phylum_cols),
+annotation_name_gp = gpar(fontsize=5, fontface="bold"),
+annotation_name_rot = 60,
+annotation_name_side = "bottom",
+simple_anno_size = unit(1.4,"mm"),
+annotation_legend_param = list(
+Oral = list(
+title_gp = gpar(fontsize=5, fontface="bold"),
+labels_gp = gpar(fontsize=4),
+grid_height = unit(1.4,"mm"), grid_width = unit(2,"mm")),
+Phylum = list(
+title_gp = gpar(fontsize=5, fontface="bold"),
+labels_gp = gpar(fontsize=4),
+grid_height = unit(1.4,"mm"), grid_width = unit(2,"mm"))))
+
+col_split_maa <- factor(
+c(rep("Lifestyle",length(life_meta)), rep("Health/Disease",length(dis_meta))),
+levels=c("Lifestyle","Health/Disease"))
+
+ordered_df <- data.frame(
+group = c("Vegetables","Fruits","Mushrooms","Coffee","Green tea","Vinegar",
+"Tofu","Natto","Miso","Pickles","Kimchi","Yogurt","Milk",
+"Meat","Processed meat","Seafood","Eggs","Dressing","Rice",
+"Bread","Noodles","Soft drinks","Alcohol","Smoking",
+"Weak physical activity","Moderate physical activity","Strong physical activity","Sitting down ≥ 9.5h",
+"General health","IBD","IBS","Liver cirrhosis",
+"T2D","Dyslipidemia","Hypertension","Hyperuricemia",
+"IHD","Heart failure","Stroke",
+"Depression","Rheumatoid arthritis","Collagen disease","Asthma","COPD"),
+annotation = c(rep("Plant-based diets",3), rep("Polyphenol-rich beverages",2),
+rep("-",2), rep("Fermented diets",4), rep("Dairy product",2),
+rep("Animal-based diets",5), rep("Starch/Sugar-rich diets",4),
+rep("Alcohol/Smoking",2), rep("Exercise",4),
+"Health", rep("Disease",15)),
+color = c(rep("#66c2a5",3), rep("#b3b3b3",2),
+rep("white",2), rep("#fc8d62",4), rep("#8da0cb",2),
+rep("#e78ac3",5), rep("#a6d854",4),
+rep("#ffd92f",2), rep("#e5c494",4),
+rep("white",1), rep("black",15)),
+stringsAsFactors=FALSE)
+rownames(ordered_df) <- ordered_df$group
+
+anno_meta <- ordered_df[all_meta, "annotation"]
+
+col_M <- c(
+"Plant-based diets" = "#66c2a5",
+"Polyphenol-rich beverages" = "#b3b3b3",
+"-" = "white",
+"Fermented diets" = "#fc8d62",
+"Dairy product" = "#8da0cb",
+"Animal-based diets" = "#e78ac3",
+"Starch/Sugar-rich diets" = "#a6d854",
+"Alcohol/Smoking" = "#ffd92f",
+"Exercise" = "#e5c494",
+"Health" = "white",
+"Disease" = "black"
+)
+
+top_anno_maa <- HeatmapAnnotation(
+Classification = anno_meta,
+annotation_name_gp = gpar(fontsize=5, fontface="bold"),
+annotation_name_rot = 0,
+annotation_name_side = "left",
+col = list(Classification=col_M),
+simple_anno_size = unit(0.5,"mm"),
+annotation_legend_param = list(
+Classification = list(title_gp=gpar(fontsize=5,fontface="bold"),
+labels_gp=gpar(fontsize=4),
+grid_height=unit(1.4,"mm"), grid_width=unit(2,"mm"))))
+
+col_breaks_maa <- c(0.25,0.2,0.1,0.05,0.01,0,-0.01,-0.05,-0.1,-0.2,-0.25)
+col_fun_maa <- colorRamp2(col_breaks_maa,
+c("#E68795","#EEA3AD","#F5BFC6","#F9D5D8","#FDEBEC",
+"white","#EEF5FB","#DCEAF7","#C8DEF1","#B2D1EA","#9BC4E2"))
+
+legend_param_maa <- list(
+title_gp = gpar(fontsize=5, fontface="bold"),
+labels_gp = gpar(fontsize=5),
+grid_height = unit(1.4,"mm"), grid_width = unit(1.4,"mm"),
+legend_height = unit(20,"mm"),
+at = col_breaks_maa,
+tick_length = unit(0.5,"mm"), background_gp = gpar(lwd=0.25))
+
+make_cell_maa <- function(qmat, pmat){
+function(j,i,x,y,width,height,fill){
+q <- qmat[i,j]; p <- pmat[i,j]
+if(!is.na(q) && q < 0.05)
+grid.text("**",x,y,vjust=0.8,gp=gpar(fontsize=5))
+else if(!is.na(p) && p < 0.1)
+grid.text("*", x,y,vjust=0.8,gp=gpar(fontsize=5))
+}
+}
+
+hm_maa <- Heatmap(
+as.matrix(maa_coef),
+name = "MAA coef",
+col = col_fun_maa,
+cluster_rows = FALSE,
+cluster_columns = FALSE,
+left_annotation = left_anno,
+top_annotation = top_anno_maa,
+column_split = col_split_maa,
+column_title_gp = gpar(fontsize=5),
+column_gap = unit(1.4,"mm"),
+row_split = sort_df$Phylum,
+row_title = NULL,
+row_gap = unit(0.5,"mm"),
+column_names_rot = 60,
+column_names_side = "bottom",
+column_names_gp = gpar(fontsize=5),
+row_names_gp = gpar(fontsize=5),
+row_names_side = "left",
+show_row_names = TRUE,
+height = nrow(maa_coef) * unit(1.4,"mm"),
+width = ncol(maa_coef) * unit(2,"mm"),
+heatmap_legend_param = legend_param_maa,
+cell_fun = make_cell_maa(maa_qval, maa_pval))
+
+metabo_rho <- data.frame(
+feature = SP_list$GTDB,
+Butyrate = SP_list$Butyrate_rho,
+Acetate = SP_list$Acetate_rho,
+Propionate = SP_list$Propionate_rho,
+stringsAsFactors = FALSE
+) %>% column_to_rownames("feature")
+
+metabo_pval <- data.frame(
+feature = SP_list$GTDB,
+Butyrate = SP_list$Butyrate_p,
+Acetate = SP_list$Acetate_p,
+Propionate = SP_list$Propionate_p,
+stringsAsFactors = FALSE
+) %>% column_to_rownames("feature")
+
+metabo_fdr <- data.frame(
+feature = SP_list$GTDB,
+Butyrate = SP_list$Butyrate_fdr,
+Acetate = SP_list$Acetate_fdr,
+Propionate = SP_list$Propionate_fdr,
+stringsAsFactors = FALSE
+) %>% column_to_rownames("feature")
+
+cytokine_rho <- data.frame(
+feature = SP_list$GTDB,
+TNF_alpha = SP_list$TNF_alpha_rho,
+IL8_CXCL8 = SP_list$IL8_CXCL8_rho,
+CCL2 = SP_list$CCL2_rho,
+IFN_gamma = SP_list$IFN_gamma_rho,
+CXCL9 = SP_list$CXCL9_rho,
+IP10_CXCL10 = SP_list$IP10_CXCL10_rho,
+CXCL11 = SP_list$CXCL11_rho,
+stringsAsFactors = FALSE
+) %>% column_to_rownames("feature")
+
+cytokine_pval <- data.frame(
+feature = SP_list$GTDB,
+TNF_alpha = SP_list$TNF_alpha_p,
+IL8_CXCL8 = SP_list$IL8_CXCL8_p,
+CCL2 = SP_list$CCL2_p,
+IFN_gamma = SP_list$IFN_gamma_p,
+CXCL9 = SP_list$CXCL9_p,
+IP10_CXCL10 = SP_list$IP10_CXCL10_p,
+CXCL11 = SP_list$CXCL11_p,
+stringsAsFactors = FALSE
+) %>% column_to_rownames("feature")
+
+cytokine_fdr <- data.frame(
+feature = SP_list$GTDB,
+TNF_alpha = SP_list$TNF_alpha_fdr,
+IL8_CXCL8 = SP_list$IL8_CXCL8_fdr,
+CCL2 = SP_list$CCL2_fdr,
+IFN_gamma = SP_list$IFN_gamma_fdr,
+CXCL9 = SP_list$CXCL9_fdr,
+IP10_CXCL10 = SP_list$IP10_CXCL10_fdr,
+CXCL11 = SP_list$CXCL11_fdr,
+stringsAsFactors = FALSE
+) %>% column_to_rownames("feature")
+
+metabo_rho <- metabo_rho[sort_df$feature, ]
+metabo_pval <- metabo_pval[sort_df$feature, ]
+metabo_fdr <- metabo_fdr[sort_df$feature, ]
+
+cytokine_rho <- cytokine_rho[sort_df$feature, ]
+cytokine_pval <- cytokine_pval[sort_df$feature, ]
+cytokine_fdr <- cytokine_fdr[sort_df$feature, ]
+
+rownames(metabo_rho) <- sort_df$rowname
+rownames(metabo_pval) <- sort_df$rowname
+rownames(metabo_fdr) <- sort_df$rowname
+
+rownames(cytokine_rho) <- sort_df$rowname
+rownames(cytokine_pval) <- sort_df$rowname
+rownames(cytokine_fdr) <- sort_df$rowname
+
+metabo_rho[is.na(metabo_rho)] <- 0
+metabo_pval[is.na(metabo_pval)] <- 1
+metabo_fdr[is.na(metabo_fdr)] <- 1
+
+cytokine_rho[is.na(cytokine_rho)] <- 0
+cytokine_pval[is.na(cytokine_pval)] <- 1
+cytokine_fdr[is.na(cytokine_fdr)] <- 1
+
+col_rho_1 <- colorRamp2(
+c(min(c(0,min(metabo_rho)))/2, min(c(0,min(metabo_rho)))/4, 0,
+max(c(0,max(metabo_rho)))/2, max(c(0,max(metabo_rho)))),
+c("#2166AC","#67A9CF","#F7F7F7","#EF8A62","#B2182B"))
+
+mini_2 <- min(cytokine_rho, na.rm=TRUE); maxi_2 <- max(cytokine_rho, na.rm=TRUE)
+col_rho_2 <- colorRamp2(
+c(0.5min(c(0,mini_2,-maxi_2)), 0, 0.5max(c(0,maxi_2))),
+c("skyblue","white","pink"))
+
+top_anno_1 <- HeatmapAnnotation(
+SCFA = anno_block(gp=gpar(fill="gray80",col="gray80"),
+labels="SCFA",
+labels_gp=gpar(fontsize=5,fontface="bold")),
+annotation_height=unit(4,"mm"))
+
+top_anno_2 <- HeatmapAnnotation(
+Cytokine = anno_block(gp=gpar(fill="gray80",col="gray80"),
+labels="Cytokine",
+labels_gp=gpar(fontsize=5,fontface="bold")),
+annotation_height=unit(4,"mm"))
+
+legend_param_rho <- list(
+title_gp = gpar(fontsize=5, fontface="bold"),
+labels_gp = gpar(fontsize=5),
+grid_height = unit(1.4,"mm"), grid_width = unit(1.4,"mm"),
+legend_height = unit(20,"mm"))
+
+make_cell_spearman <- function(qmat, pmat){
+function(j,i,x,y,width,height,fill){
+q <- qmat[i,j]; p <- pmat[i,j]
+if(!is.na(q) && q < 0.05)
+grid.text("**",x,y,vjust=0.8,gp=gpar(fontsize=5))
+else if(!is.na(p) && p < 0.05)
+grid.text("*", x,y,vjust=0.8,gp=gpar(fontsize=5))
+}
+}
+
+hm_metabo <- Heatmap(
+as.matrix(metabo_rho),
+name = "**fdr<0.05\n*p<0.05\nSpearman rho",
+col = col_rho_1,
+cluster_rows = FALSE,
+cluster_columns = FALSE,
+top_annotation = top_anno_1,
+row_split = sort_df$Phylum,
+row_title = NULL,
+row_gap = unit(0.5,"mm"),
+column_names_side = "bottom",
+row_names_side = "left",
+show_row_names = FALSE,
+column_names_rot = 60,
+column_names_gp = gpar(fontsize=5),
+row_names_gp = gpar(fontsize=5),
+height = nrow(metabo_rho)*unit(1.4,"mm"),
+width = ncol(metabo_rho)*unit(2,"mm"),
+heatmap_legend_param = legend_param_rho,
+cell_fun = make_cell_spearman(metabo_fdr, metabo_pval))
+
+hm_cyto <- Heatmap(
+as.matrix(cytokine_rho),
+name = "**fdr<0.05\n*p<0.05\nSpearman rho ",
+col = col_rho_2,
+cluster_rows = FALSE,
+cluster_columns = FALSE,
+top_annotation = top_anno_2,
+row_split = sort_df$Phylum,
+row_title = NULL,
+row_gap = unit(0.5,"mm"),
+row_names_side = "left",
+show_row_names = FALSE,
+column_names_rot = 60,
+column_names_gp = gpar(fontsize=5),
+row_names_gp = gpar(fontsize=5),
+height = nrow(cytokine_rho)*unit(1.4,"mm"),
+width = ncol(cytokine_rho)*unit(2,"mm"),
+heatmap_legend_param = c(legend_param_rho,
+list(legend_direction="horizontal",
+at=c(-0.1,-0.05,0,0.05,0.1))),
+cell_fun = make_cell_spearman(cytokine_fdr, cytokine_pval))
+
+pdf("sfig3_Dis_Ori_sup.pdf", width=8.27, height=11.69, family="Helvetica")
+draw(hm_maa + hm_metabo + hm_cyto,
+merge_legend = TRUE,
+padding = unit(c(30,50,10,2),"mm"))
+dev.off()
+message("Done: sfig3_Health_Ori_sup.pdf")

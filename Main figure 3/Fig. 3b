@@ -1,0 +1,198 @@
+
+rm(list=ls())
+set.seed(100)
+
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(openxlsx)
+library(reshape2)
+
+par(family="Helvetica")
+
+
+SP_list <- read.xlsx("/path/to/data/Supplementary_Tables.xlsx", 
+                     sheet = "S12HOriSPSCFACyto",
+                     check.names = F,
+                     sep.names = " ")
+
+SP_list <- SP_list[1:25, ]
+
+SP_df <- data.frame(feature = SP_list$GTDB)
+
+
+metabo_cols <- c("Butyrate", "Acetate", "Propionate")
+
+hm_rho_1 <- SP_list %>%
+  select(GTDB, all_of(paste0(metabo_cols, "_rho")))
+
+hm_pval_1 <- SP_list %>%
+  select(GTDB, all_of(paste0(metabo_cols, "_p")))
+
+hm_fdr_1 <- SP_list %>%
+  select(GTDB, all_of(paste0(metabo_cols, "_fdr")))
+
+colnames(hm_rho_1)  <- c("feature", metabo_cols)
+colnames(hm_pval_1) <- c("feature", metabo_cols)
+colnames(hm_fdr_1)  <- c("feature", metabo_cols)
+
+hm_rho_1  <- column_to_rownames(hm_rho_1, "feature")
+hm_pval_1 <- column_to_rownames(hm_pval_1, "feature")
+hm_fdr_1  <- column_to_rownames(hm_fdr_1, "feature")
+
+
+cytokine_list <- c(
+  "TNF_alpha",
+  "IL8_CXCL8",
+  "CCL2",
+  "IFN_gamma",
+  "CXCL9",
+  "IP10_CXCL10",
+  "CXCL11"
+)
+
+hm_rho_2 <- SP_list %>%
+  select(GTDB, all_of(paste0(cytokine_list, "_rho")))
+
+hm_pval_2 <- SP_list %>%
+  select(GTDB, all_of(paste0(cytokine_list, "_p")))
+
+hm_fdr_2 <- SP_list %>%
+  select(GTDB, all_of(paste0(cytokine_list, "_fdr")))
+
+colnames(hm_rho_2)  <- c("feature", cytokine_list)
+colnames(hm_pval_2) <- c("feature", cytokine_list)
+colnames(hm_fdr_2)  <- c("feature", cytokine_list)
+
+hm_rho_2  <- column_to_rownames(hm_rho_2, "feature")
+hm_pval_2 <- column_to_rownames(hm_pval_2, "feature")
+hm_fdr_2  <- column_to_rownames(hm_fdr_2, "feature")
+
+
+hm_rho_1[is.na(hm_rho_1)]   <- 0
+hm_pval_1[is.na(hm_pval_1)] <- 1
+hm_fdr_1[is.na(hm_fdr_1)]   <- 1
+
+hm_rho_2[is.na(hm_rho_2)]   <- 0
+hm_pval_2[is.na(hm_pval_2)] <- 1
+hm_fdr_2[is.na(hm_fdr_2)]   <- 1
+
+
+top_anno_1 <- HeatmapAnnotation(
+  SCFA = anno_block(
+    gp = gpar(fill = "gray80", col = "gray80"),
+    labels = "SCFA",
+    labels_gp = gpar(fontsize = 6, fontface = "bold")
+  ),
+  annotation_height = unit(4, "mm")
+)
+
+top_anno_2 <- HeatmapAnnotation(
+  Cytokine = anno_block(
+    gp = gpar(fill = "gray80", col = "gray80"),
+    labels = "Cytokine",
+    labels_gp = gpar(fontsize = 6, fontface = "bold")
+  ),
+  annotation_height = unit(4, "mm")
+)
+
+
+rownames(hm_rho_1)  <- gsub("\\[ID:(\\d+)\\]", "\\1", rownames(hm_rho_1))
+rownames(hm_pval_1) <- rownames(hm_rho_1)
+rownames(hm_fdr_1)  <- rownames(hm_rho_1)
+
+rownames(hm_rho_2)  <- gsub("\\[ID:(\\d+)\\]", "\\1", rownames(hm_rho_2))
+rownames(hm_pval_2) <- rownames(hm_rho_2)
+rownames(hm_fdr_2)  <- rownames(hm_rho_2)
+
+
+col_rho_1 <- colorRamp2(
+  c(
+    min(c(0, min(hm_rho_1))) / 2,
+    min(c(0, min(hm_rho_1))) / 4,
+    0,
+    max(c(0, max(hm_rho_1))) / 2,
+    max(c(0, max(hm_rho_1)))
+  ),
+  c("#2166AC", "#67A9CF", "#F7F7F7", "#EF8A62", "#B2182B")
+)
+
+hm2 <- Heatmap(
+  as.matrix(hm_rho_1),
+  name = "**fdr<0.05\n*p<0.05\nSpearman rho",
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  top_annotation = top_anno_1,
+  column_names_side = "bottom",
+  row_names_side = "left",
+  column_names_rot = 45,
+  height = nrow(hm_rho_1) * unit(2.8, "mm"),
+  width = ncol(hm_rho_1) * unit(2.8, "mm"),
+  column_names_gp = gpar(fontsize = 5.5, fontface = "bold"),
+  row_names_gp = gpar(fontsize = 5.5, fontface = "bold"),
+  col = col_rho_1,
+  heatmap_legend_param = list(
+    title_gp = gpar(fontsize = 6, fontface = "bold"),
+    labels_gp = gpar(fontsize = 6),
+    grid_height = unit(3, "mm"),
+    grid_width = unit(3, "mm"),
+    legend_height = unit(20, "mm")
+  ),
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (hm_fdr_1[i, j] < 0.05) {
+      grid.text("**", x, y, vjust = 0.8, gp = gpar(fontsize = 6))
+    } else if (hm_pval_1[i, j] < 0.05) {
+      grid.text("*", x, y, vjust = 0.8, gp = gpar(fontsize = 6))
+    }
+  }
+)
+
+
+mini_2 <- min(hm_rho_2, na.rm = TRUE)
+maxi_2 <- max(hm_rho_2, na.rm = TRUE)
+
+col_rho_2 <- colorRamp2(
+  c(
+    0.5 * min(c(0, mini_2, -maxi_2)),
+    0,
+    0.5 * max(c(0, maxi_2))
+  ),
+  c("skyblue", "white", "pink")
+)
+
+hm3 <- Heatmap(
+  as.matrix(hm_rho_2),
+  name = "**fdr<0.05\n*p<0.05\nSpearman rho ",
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  top_annotation = top_anno_2,
+  row_names_side = "left",
+  column_names_rot = 45,
+  height = nrow(hm_rho_2) * unit(2.8, "mm"),
+  width = ncol(hm_rho_2) * unit(2.8, "mm"),
+  column_names_gp = gpar(fontsize = 5.5, fontface = "bold"),
+  row_names_gp = gpar(fontsize = 5.5, fontface = "bold"),
+  col = col_rho_2,
+  heatmap_legend_param = list(
+    title_gp = gpar(fontsize = 6, fontface = "bold"),
+    labels_gp = gpar(fontsize = 6),
+    grid_height = unit(3, "mm"),
+    grid_width = unit(3, "mm"),
+    legend_direction = "horizontal",
+    at = c(-0.1, -0.05, 0, 0.05, 0.1)
+  ),
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (hm_fdr_2[i, j] < 0.05) {
+      grid.text("**", x, y, vjust = 0.8, gp = gpar(fontsize = 6))
+    } else if (hm_pval_2[i, j] < 0.05) {
+      grid.text("*", x, y, vjust = 0.8, gp = gpar(fontsize = 6))
+    }
+  }
+)
+
+
+pdf("fig3b.pdf", family = "Helvetica")
+draw(hm2 + hm3,
+     padding = unit(c(80, 50, 2, 2), "mm"),
+     merge_legend = TRUE)
+dev.off()

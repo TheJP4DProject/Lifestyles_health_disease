@@ -1,0 +1,194 @@
+library(openxlsx)
+library(ComplexHeatmap)
+library(circlize)
+library(ggplot2)
+library(gridExtra)
+library(ggrepel)
+library(tidyverse)
+library(readxl)
+library(ggtext)
+
+set.seed(123)
+
+causal <- read.xlsx("stable/Supplementary Tables_260405.xlsx",
+sheet="S9 MOTU",
+check.names = F,
+sep.names = " ")
+
+colnames(causal)[6] <- "Mediator"
+
+key <- c(
+"Strong physical activity",
+"Moderate physical activity",
+"Weak physical activity",
+"Sitting down ≥ 9.5h"
+)
+
+causal_sig <- causal %>%
+filter(Exposure %in% key)
+
+maa <- read.xlsx("stable/Supplementary Tables_260405.xlsx",
+sheet = "S6")
+
+colnames(maa)[2] <- "feature"
+colnames(maa)[3] <- "metadata"
+
+highlight_map <- c(
+"Faecalibacterium prausnitzii_D [ID:06108]" = "#7FA6D9",
+"Fusicatenibacter saccharivorans [ID:12240]" = "#F0B48A",
+"Gemella morbillorum [ID:11495]" = "#8FD19E",
+"Ruminococcus_B gnavus [ID:01594]" = "#E89A9C",
+"Escherichia coli [ID:00095]" = "#B1A6E0"
+)
+
+plot_list <- list()
+r <- NULL
+
+for (i in 1:(length(key) - 1)) {
+
+undo <- causal_sig %>%
+filter(Exposure == key[i]) %>%
+pull(Mediator) %>%
+unique()
+
+sitt <- causal_sig %>%
+filter(Exposure == "Sitting down ≥ 9.5h") %>%
+pull(Mediator) %>%
+unique()
+
+undomaa <- maa %>% filter(metadata == key[i])
+sittmaa <- maa %>% filter(metadata == "Sitting down ≥ 9.5h")
+
+rownames(undomaa) <- undomaa$feature
+rownames(sittmaa) <- sittmaa$feature
+
+common <- union(undo, sitt)
+
+temp <- data.frame(
+feature = common,
+undo_coef = undomaa[common, "coef"],
+sitt_coef = sittmaa[common, "coef"]
+)
+
+temp$highlight_color <- highlight_map[temp$feature]
+temp$is_highlight <- !is.na(temp$highlight_color)
+
+cor_test <- cor.test(
+temp$undo_coef,
+temp$sitt_coef,
+method = "spearman"
+)
+
+r <- rbind(r, data.frame(key=key[i], rho=cor_test$estimate, p=cor_test$p.value))
+
+p <- ggplot(temp, aes(x = sitt_coef, y = undo_coef)) +
+geom_point(color = "black", size = 0.8, alpha = 0.6) +
+geom_smooth(method = "lm", color = "blue", size = 0.5, se = TRUE) +
+geom_point(
+data = subset(temp, is_highlight),
+aes(color = feature),
+size = 2,
+shape = 16,
+alpha = 0.9
+) +
+scale_color_manual(values = highlight_map, name = "Highlighted species") +
+labs(
+title = paste0(key[i], " vs Sitting.down9.5h"),
+x = "Sitting.down9.5h coefficient",
+y = paste0(key[i], " coefficient")
+) +
+theme_bw() +
+theme(
+axis.title.x = element_text(size = 6, face = "bold"),
+axis.title.y = element_text(size = 6, face = "bold"),
+axis.text.x = element_text(size = 6),
+axis.text.y = element_text(size = 6),
+plot.title = element_text(size = 7, face = "bold"),
+legend.title = element_text(size = 6),
+legend.text = element_text(size = 5),
+legend.key.size = unit(0.3, "cm"),
+panel.border = element_rect(color = "black", fill = NA, size = 0.5)
+) +
+annotate(
+"text",
+x = min(temp$sitt_coef, na.rm = TRUE),
+y = max(temp$undo_coef, na.rm = TRUE),
+label = paste0(
+"Spearman rho = ",
+round(cor_test$estimate, 3),
+"\nP = ",
+signif(cor_test$p.value, 3)
+),
+hjust = 0,
+vjust = 1,
+size = 5 / ggplot2::.pt
+)
+
+plot_list[[i]] <- p
+}
+
+pdf("fig5d.pdf", width = 12, height = 2.2)
+grid.arrange(grobs = plot_list, ncol = 3)
+dev.off()
+
+source_df <- data.frame()
+panel_stats <- data.frame()
+
+for (i in 1:(length(key) - 1)) {
+
+undo <- causal_sig %>%
+filter(Exposure == key[i]) %>%
+pull(Mediator) %>%
+unique()
+
+sitt <- causal_sig %>%
+filter(Exposure == "Sitting down ≥ 9.5h") %>%
+pull(Mediator) %>%
+unique()
+
+undomaa <- maa %>% filter(metadata == key[i])
+sittmaa <- maa %>% filter(metadata == "Sitting down ≥ 9.5h")
+
+rownames(sittmaa) <- sittmaa$feature
+rownames(undomaa) <- undomaa$feature
+
+common <- union(undo, sitt)
+
+temp <- data.frame(
+feature = common,
+NCBI = sittmaa[common, "NCBI"],
+undo_coef = undomaa[common, "coef"],
+sitt_coef = sittmaa[common, "coef"]
+)
+
+temp <- temp %>%
+filter(!is.na(undo_coef) & !is.na(sitt_coef))
+
+temp$panel <- key[i]
+
+source_df <- rbind(source_df, temp)
+
+cor_test <- cor.test(
+temp$undo_coef,
+temp$sitt_coef,
+method = "spearman"
+)
+
+panel_stats <- rbind(
+panel_stats,
+data.frame(
+panel = key[i],
+rho = cor_test$estimate,
+p = cor_test$p.value
+)
+)
+}
+
+panel_stats$FDR <- p.adjust(panel_stats$p, method = "BH")
+
+source_df <- source_df %>%
+left_join(panel_stats, by = c("panel"))
+
+colnames(source_df)[1:5] <- c("GTDB","NCBI","physical activity coef","Sitting down ≥ 9.5hcoef","Category")
+
+write.csv(source_df, "fig5d.csv", row.names = FALSE)

@@ -1,0 +1,186 @@
+rm(list = ls())
+set.seed(100)
+
+library(glmnet)
+library(openxlsx)
+library(pROC)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(grid)
+library(scales)
+
+meta <- read.xlsx("metadata_species_profile.v2.xlsx", sheet = 1)
+dislist <- read.xlsx("metadata_species_profile.v2.xlsx", sheet = 3)
+
+motu <- readRDS("motu.rds")
+
+rownames(motu) <- meta$sample_alias
+meta <- meta[meta$study %in% dislist$study, ]
+motu <- motu[meta$sample_alias, ]
+
+tempmeta <- meta
+metadata_ref <- read.csv("meta.atc.csv")
+outcome_order <- colnames(metadata_ref)[34:50]
+
+clr_transform <- function(M) {
+M[M == 0] <- min(M[M > 0]) / 2
+logM <- log(M)
+sweep(logM, 1, rowMeans(logM), "-")
+}
+
+standardize_cols <- function(M) {
+scaled <- scale(M)
+colnames(scaled) <- colnames(M)
+rownames(scaled) <- rownames(M)
+scaled
+}
+
+extract_id <- function(names) {
+gsub(".\[ID:([0-9]{5})\].", "\1", names)
+}
+
+predict_logodds_1se <- function(rds_file, tempworld) {
+model <- readRDS(rds_file)
+if (is.null(model$status) || model$status != "success") return(NULL)
+
+all_features <- rownames(model$cvfit$glmnet.fit$beta)
+feature_ids <- extract_id(all_features)
+
+X <- matrix(0, nrow(tempworld), length(all_features))
+colnames(X) <- all_features
+rownames(X) <- rownames(tempworld)
+
+for (i in seq_along(feature_ids)) {
+if (feature_ids[i] %in% colnames(tempworld)) {
+X[, i] <- tempworld[, feature_ids[i]]
+}
+}
+
+as.numeric(predict(model$cvfit, newx = X, s = model$lambda_1se, type = "link"))
+}
+
+all_data <- list()
+p_values <- list()
+stats_data <- list()
+
+for (st in unique(tempmeta$study)) {
+
+tempr <- tempmeta[tempmeta$study == st, ]
+disease_key <- setdiff(unique(tempr$disease), "CTR")
+if (length(disease_key) == 0) next
+
+disease_name <- dislist[tolower(dislist$disease) == tolower(disease_key[1]), "name"][1]
+
+tempworld <- motu[tempr$sample_alias, ]
+tempworld <- tempworld[, colSums(tempworld) > 0]
+colnames(tempworld) <- sub(".v3_([0-9]{5})\].", "\1", colnames(tempworld))
+tempworld <- standardize_cols(clr_transform(tempworld)[, -1])
+
+rds_file <- paste0("model_results_1se_logodds/rds_files/", gsub(" ", ".", disease_name), "_sp.rds")
+if (!file.exists(rds_file)) next
+
+tempr$log_odds <- predict_logodds_1se(rds_file, tempworld)
+tempr$group <- ifelse(tempr$HealthCTR != 0, "Control", "Disease")
+tempr$study_disease <- paste0(st, "\n", disease_name)
+tempr$disease_name <- disease_name
+
+p_val <- tryCatch(
+wilcox.test(
+tempr$log_odds[tempr$group == "Control"],
+tempr$log_odds[tempr$group == "Disease"]
+)$p.value,
+error = function(e) NA
+)
+
+control_logodds <- tempr$log_odds[tempr$group == "Control"]
+disease_logodds <- tempr$log_odds[tempr$group == "Disease"]
+
+n_control <- length(control_logodds)
+n_disease <- length(disease_logodds)
+n_total <- n_control + n_disease
+
+median_control <- median(control_logodds, na.rm = TRUE)
+median_disease <- median(disease_logodds, na.rm = TRUE)
+
+log2fc <- if (median_control != 0) log2(median_disease / median_control) else NA
+
+se_control <- sd(control_logodds, na.rm = TRUE) / sqrt(n_control)
+se_disease <- sd(disease_logodds, na.rm = TRUE) / sqrt(n_disease)
+
+all_data[[st]] <- tempr
+
+p_values[[st]] <- data.frame(
+study_disease = tempr$study_disease[1],
+disease_name = disease_name,
+study = st,
+p_value = p_val
+)
+
+stats_data[[st]] <- data.frame(
+study = st,
+disease_name = disease_name,
+median_control = median_control,
+median_disease = median_disease,
+mean_control = mean(control_logodds, na.rm = TRUE),
+mean_disease = mean(disease_logodds, na.rm = TRUE),
+sd_control = sd(control_logodds, na.rm = TRUE),
+sd_disease = sd(disease_logodds, na.rm = TRUE),
+se_control = se_control,
+se_disease = se_disease,
+log2fc = log2fc,
+pval = p_val,
+n_control = n_control,
+n_disease = n_disease,
+n_total = n_total,
+stringsAsFactors = FALSE
+)
+}
+
+tempr <- tempmeta
+
+tempworld <- motu[tempr$sample_alias, ]
+tempworld <- tempworld[, colSums(tempworld) > 0]
+colnames(tempworld <- sub(".v3_([0-9]{5})\].", "\1", colnames(tempworld)))
+tempworld <- standardize_cols(clr_transform(tempworld))
+
+rds_file <- "model_results_1se_logodds/rds_files/General.Health_sp.rds"
+
+tempr$log_odds <- predict_logodds_1se(rds_file, tempworld)
+tempr$group <- ifelse(tempr$HealthCTR != 0, "Control", "Disease")
+tempr$study_disease <- "worldHealth\nGeneral.Health"
+tempr$disease_name <- "General.Health"
+
+wilcox_wh <- wilcox.test(
+tempr$log_odds[tempr$group == "Control"],
+tempr$log_odds[tempr$group == "Disease"]
+)$p.value
+
+control_wh <- tempr$log_odds[tempr$group == "Control"]
+disease_wh <- tempr$log_odds[tempr$group == "Disease"]
+
+n_control_wh <- length(control_wh)
+n_disease_wh <- length(disease_wh)
+
+stats_data[["worldHealth"]] <- data.frame(
+study = "worldHealth",
+disease_name = "General.Health",
+median_control = median(control_wh, na.rm = TRUE),
+median_disease = median(disease_wh, na.rm = TRUE),
+mean_control = mean(control_wh, na.rm = TRUE),
+mean_disease = mean(disease_wh, na.rm = TRUE),
+sd_control = sd(control_wh, na.rm = TRUE),
+sd_disease = sd(disease_wh, na.rm = TRUE),
+se_control = sd(control_wh, na.rm = TRUE) / sqrt(n_control_wh),
+se_disease = sd(disease_wh, na.rm = TRUE) / sqrt(n_disease_wh),
+log2fc = if (median(control_wh) != 0) log2(median(disease_wh) / median(control_wh)) else NA,
+pval = wilcox_wh,
+n_control = n_control_wh,
+n_disease = n_disease_wh,
+n_total = n_control_wh + n_disease_wh,
+stringsAsFactors = FALSE
+)
+
+stats_df <- bind_rows(stats_data)
+
+write.csv(stats_df, "fig6b.csv", row.names = FALSE)

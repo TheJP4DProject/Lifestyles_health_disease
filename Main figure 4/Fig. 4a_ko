@@ -1,0 +1,219 @@
+
+library(openxlsx)
+library(tidyverse)
+library(circlize)
+library(ComplexHeatmap)
+library(htmlwidgets)
+library(htmltools)
+library(networkD3)
+
+ordered_df <- data.frame(
+  group = c(
+    "Vegetables", "Fruits", "Mushrooms",
+    "Coffee", "Green tea", "Vinegar",
+    "Tofu", "Natto", "Miso",
+    "Pickles", "Kimchi", "Yogurt",
+    "Milk", "Meat", "Processed meat", "Seafood",
+    "Eggs", "Dressing", "Rice", "Bread", "Noodles", "Soft drinks",
+    "Alcohol", "Smoking", "Weak physical activity", "Moderate physical activity",
+    "Strong physical activity", "Sitting down ≥ 9.5h"
+  ),
+  annotation = c(
+    rep("Plant-based diets", 3),
+    rep("Polyphenol-rich beverages", 2),
+    rep("-", 2),
+    rep("Fermented diets", 4),
+    rep("Dairy product", 2),
+    rep("Animal-based diets", 5),
+    rep("Starch/Sugar-rich diets", 4),
+    rep("Alcohol/Smoking", 2),
+    rep("Exercise", 4)
+  ),
+  color = c(
+    rep("#66c2a5", 3),
+    rep("#b3b3b3", 2),
+    rep("white", 2),
+    rep("#fc8d62", 4),
+    rep("#8da0cb", 2),
+    rep("#e78ac3", 5),
+    rep("#a6d854", 4),
+    rep("#ffd92f", 2),
+    rep("#e5c494", 4)
+  )
+)
+rownames(ordered_df) <- ordered_df$group
+
+Disease_list <- data.frame(
+  group = c(
+    "General health", "Inflammatory Bowel Disease (IBD)",
+    "Irritable Bowel Syndrome (IBS)", "Liver cirrhosis",
+    "Type 2 Diabetes (T2D)", "Dyslipidemia", "Hypertension",
+    "Hyperuricemia", "Ischemic Heart Disease (IHD)",
+    "Heart failure", "Stroke",
+    "Depression", "Rheumatoid arthritis",
+    "Collagen disease", "Asthma",
+    "Chronic Obstructive Pulmonary Disease (COPD)"
+  ),
+  color = c("white", rep("black", 15))
+)
+
+##### Parameters #####
+sankeywidth  <- 900
+sankeyheight <- 300
+######################
+
+# ============================================================
+# causal
+# ============================================================
+causal <- read.xlsx("S11KO.xlsx", check.names = FALSE)
+
+colnames(causal)[6] <- "Mediator"
+
+# KO list
+sp_list <- c("K01728", "K01195", "K01179", "K00041", "K00248")
+
+sp_list_ids <- c(
+  "Pectin degradation K01728",
+  "Hemicellulose degradation K01195",
+  "Cellulose degradation K01179",
+  "Uronic acid conversion K00041",
+  "Butyryl-CoA formation K00248"
+)
+
+sp_id_to_name <- setNames(sp_list_ids, sp_list)
+
+metadata <- c("Vegetables", "Fruits", "Mushrooms")
+
+causal <- causal %>%
+  filter(Mediator %in% sp_list,
+         Exposure %in% metadata)
+
+causal$Mediator <- gsub("\\[ID:(\\d+)\\]", "\\1", causal$Mediator)
+
+# ============================================================
+# nodes
+# ============================================================
+nodes <- data.frame()
+
+temp_factor <- unique(causal$Exposure)
+nodes <- rbind(nodes, data.frame(
+  id = 0:(length(temp_factor)-1),
+  tag = temp_factor,
+  display_tag = temp_factor,
+  group = ordered_df[temp_factor, ]$annotation
+))
+
+temp_sp <- sp_list
+temp_sp_names <- sp_id_to_name[temp_sp]
+
+nodes <- rbind(nodes, data.frame(
+  id = nrow(nodes) + 0:(length(temp_sp)-1),
+  tag = temp_sp_names,
+  display_tag = temp_sp_names,
+  group = "all_nodes"
+))
+
+temp_dis <- Disease_list$group[Disease_list$group %in% unique(causal$Outcome)]
+
+nodes <- rbind(nodes, data.frame(
+  id = nrow(nodes) + 0:(length(temp_dis)-1),
+  tag = temp_dis,
+  display_tag = ifelse(
+    grepl("\\(.*\\)", temp_dis),
+    sub(".*\\((.*)\\)", "\\1", temp_dis),
+    temp_dis
+  ),
+  group = ifelse(temp_dis == "General health", "Health", "Disease")
+))
+
+# ============================================================
+# links
+# ============================================================
+links <- data.frame()
+
+for (i in temp_factor) {
+  for (j in temp_sp) {
+
+    j_name <- sp_id_to_name[j]
+
+    tmp <- causal %>% filter(Exposure == i, Mediator == j, EXP_coef > 0)
+    if (nrow(tmp) > 0) {
+      links <- rbind(links, data.frame(
+        source = i, target = j_name,
+        val = nrow(tmp),
+        ids = nodes$id[nodes$tag == i],
+        idt = nodes$id[nodes$tag == j_name],
+        group = "Plus"
+      ))
+    }
+
+    tmp <- causal %>% filter(Exposure == i, Mediator == j, EXP_coef < 0)
+    if (nrow(tmp) > 0) {
+      links <- rbind(links, data.frame(
+        source = i, target = j_name,
+        val = nrow(tmp),
+        ids = nodes$id[nodes$tag == i],
+        idt = nodes$id[nodes$tag == j_name],
+        group = "Minus"
+      ))
+    }
+  }
+}
+
+for (i in temp_sp) {
+  i_name <- sp_id_to_name[i]
+
+  for (j in temp_dis) {
+
+    tmp <- causal %>% filter(Outcome == j, Mediator == i, Dis_coef > 0)
+    if (nrow(tmp) > 0) {
+      links <- rbind(links, data.frame(
+        source = i_name, target = j,
+        val = nrow(tmp),
+        ids = nodes$id[nodes$tag == i_name],
+        idt = nodes$id[nodes$tag == j],
+        group = "Plus"
+      ))
+    }
+
+    tmp <- causal %>% filter(Outcome == j, Mediator == i, Dis_coef < 0)
+    if (nrow(tmp) > 0) {
+      links <- rbind(links, data.frame(
+        source = i_name, target = j,
+        val = nrow(tmp),
+        ids = nodes$id[nodes$tag == i_name],
+        idt = nodes$id[nodes$tag == j],
+        group = "Minus"
+      ))
+    }
+  }
+}
+
+# ============================================================
+# Sankey
+# ============================================================
+p <- sankeyNetwork(
+  Links = links,
+  Nodes = nodes,
+  Source = "ids",
+  Target = "idt",
+  Value = "val",
+  NodeID = "display_tag",
+  LinkGroup = "group",
+  NodeGroup = "group",
+  fontSize = 16,
+  fontFamily = "helvetica",
+  sinksRight = FALSE,
+  nodeWidth = 2,
+  width = sankeywidth,
+  height = sankeyheight
+)
+
+p <- htmlwidgets::prependContent(
+  p,
+  htmltools::tags$h1("KO Sankey", style="text-align:center;")
+)
+
+saveNetwork(p, "fig4A_ko.html")
+
+write.csv(causal, "fig4A_ko.csv", row.names = FALSE)

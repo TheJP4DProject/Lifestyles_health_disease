@@ -7,9 +7,7 @@ library(htmlwidgets)
 library(htmltools)
 library(networkD3)
 
-# ============================================================
-# ordered_df - 标准名称列表
-# ============================================================
+
 ordered_df <- data.frame(
   group = c(
     "Vegetables", "Fruits", "Mushrooms",
@@ -45,9 +43,7 @@ ordered_df <- data.frame(
 )
 rownames(ordered_df) <- ordered_df$group
 
-# ============================================================
-# Disease list
-# ============================================================
+
 Disease_list <- data.frame(
   group = c(
     "General health", "Inflammatory Bowel Disease (IBD)", "Irritable Bowel Syndrome (IBS)", "Liver cirrhosis", "Type 2 Diabetes (T2D)",
@@ -64,9 +60,7 @@ sankeywidth  <- 850
 sankeyheight <- 600
 ######################
 
-# ============================================================
-# causal 数据读取（路径已泛化）
-# ============================================================
+
 causal <- read.xlsx("/path/to/data/Supplementary_Tables.xlsx", 
                     sheet="S9 MOTU", 
                     check.names = F, 
@@ -74,9 +68,7 @@ causal <- read.xlsx("/path/to/data/Supplementary_Tables.xlsx",
 
 colnames(causal)[6] <- "Mediator"
 
-# ============================================================
-# top25 物种列表
-# ============================================================
+
 sp_list <- read.xlsx("/path/to/data/Supplementary_Tables.xlsx", 
                      sheet="S12HOriSPSCFACyto", 
                      check.names = F, 
@@ -89,9 +81,7 @@ causal_filtered$Mediator <- gsub("\\[ID:(\\d+)\\]", "\\1", causal_filtered$Media
 top25_id <- gsub("\\[ID:(\\d+)\\]", "\\1", top25)
 key <- top25_id[top25_id %in% unique(causal_filtered$Mediator)]
 
-# ============================================================
-# Sankey nodes/links
-# ============================================================
+
 condi <- "TOP25_newfig3A"
 causal_filtered$ExposureClass <- ordered_df[causal_filtered$Exposure, ]$annotation
 
@@ -187,9 +177,7 @@ for (i in temp_sp) {
 row.names(nodes) <- NULL
 row.names(links) <- NULL
 
-# ============================================================
-# Sankey plot
-# ============================================================
+
 p <- sankeyNetwork(
   Links = links,
   Nodes = nodes,
@@ -212,9 +200,7 @@ saveNetwork(p, paste0(condi, ".html"))
 
 message("Done: ", condi, ".html")
 
-# ============================================================
-# output
-# ============================================================
+
 write.csv(causal_filtered, "fig3A.csv", row.names = FALSE)
 write.csv(nodes, "fig3_nodes.csv", row.names = FALSE)
 write.csv(links, "fig3_links.csv", row.names = FALSE)

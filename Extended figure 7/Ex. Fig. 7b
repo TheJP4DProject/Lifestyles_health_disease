@@ -1,0 +1,321 @@
+
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(openxlsx)
+
+KO_list <- c("K01176","K02793","K00016","K02841","K04333","K04786")
+
+ko_labels <- c(
+"K01176" = "glycolytic fermentation alpha-amylase K01176",
+"K02793" = "mannose PTS K02793",
+"K00016" = "lactate dehydrogenase K00016",
+"K02841" = "LPS core biosynthesis WaaC K02841",
+"K04333" = "biofilm regulation CsgD K04333",
+"K04786" = "siderophore-mediated iron acquisition Irp1/HMWP1 K04786"
+)
+
+ko_split <- factor(
+c("Carbohydrate metabolism", "Carbohydrate metabolism", "Carbohydrate metabolism",
+"Virulence/Stress", "Virulence/Stress", "Virulence/Stress"),
+levels = c("Carbohydrate metabolism", "Virulence/Stress")
+)
+
+lifestyle_treats <- c("Milk", "Yogurt", "Soft drinks", "Noodles", "Bread", "Rice")
+
+disease_list <- c("General health",
+"Inflammatory Bowel Disease (IBD)", "Irritable Bowel Syndrome (IBS)",
+"Liver cirrhosis", "Type 2 Diabetes (T2D)",
+"Dyslipidemia", "Hypertension", "Hyperuricemia",
+"Ischemic Heart Disease (IHD)", "Heart failure", "Stroke",
+"Depression", "Rheumatoid arthritis", "Collagen disease",
+"Asthma", "Chronic Obstructive Pulmonary Disease (COPD)")
+
+meta_order <- c("Yogurt", "Milk", "Rice", "Bread", "Noodles", "Soft drinks",
+"General health",
+"Inflammatory Bowel Disease (IBD)", "Irritable Bowel Syndrome (IBS)",
+"Liver cirrhosis", "Type 2 Diabetes (T2D)",
+"Dyslipidemia", "Hypertension", "Hyperuricemia",
+"Ischemic Heart Disease (IHD)", "Heart failure", "Stroke",
+"Depression", "Rheumatoid arthritis", "Collagen disease",
+"Asthma", "Chronic Obstructive Pulmonary Disease (COPD)")
+
+kometa_order <- c("Yogurt", "Milk", "Rice", "Bread", "Noodles", "Soft drinks")
+
+col_split <- factor(
+c(rep("Milk", 2), rep("Starch", 4)),
+levels = c("Milk", "Starch")
+)
+
+kocol_split <- factor(
+c(rep("Milk", 2), rep("Starch", 4), "Health", rep("Disease", 4)),
+levels = c("Lifestyle", "Health", "Disease")
+)
+
+orent <- read.xlsx("../stable/Supplementary Tables_260405.xlsx",
+sheet="S13DOriSPSCFACyto",
+check.names = F,
+sep.names = " ")
+
+sp_ko=read.xlsx("../stable/Supplementary Tables_260405.xlsx",
+sheet="Sfig.7B_data",
+check.names = F,
+sep.names = " ")
+
+row_split_fac <- factor(sp_ko$Cate,
+levels = c("Streptococcus","Actinomyces","Rothia",
+"Veillonella","Lactobacillus","Bifidobacterium","Pathobiont"))
+
+sp_raw <- read.xlsx("../stable/Supplementary Tables_260405.xlsx",
+sheet="S6",
+check.names = F,
+sep.names = " ")
+
+colnames(sp_raw)[2]="feature"
+colnames(sp_raw)[3]="metadata"
+sp_raw=sp_raw[sp_raw$metadata %in% lifestyle_treats,]
+
+ko_raw <- read.xlsx("../stable/Supplementary Tables_260405.xlsx",
+sheet="S7",
+check.names = F,
+sep.names = " ")
+
+colnames(ko_raw)[1]="feature"
+colnames(ko_raw)[3]="metadata"
+
+sp_all=sp_ko$GTDB
+
+KO_list <- c("K01176","K02793","K00016","K02841","K04333","K04786")
+
+spko_wide <- sp_ko %>%
+filter(GTDB %in% sp_all) %>%
+mutate(GTDB = factor(GTDB, levels = sp_all[sp_all %in% GTDB])) %>%
+arrange(GTDB) %>%
+mutate(GTDB = as.character(GTDB))
+
+make_mat_from_wide <- function(df, ko_vec, suffix, row_col = "GTDB"){
+cols_use <- paste0(ko_vec, "_", suffix)
+
+miss_cols <- setdiff(cols_use, colnames(df))
+if(length(miss_cols) > 0){
+stop("缺少这些列: ", paste(miss_cols, collapse = ", "))
+}
+
+mat <- df[, c(row_col, cols_use)] %>%
+tibble::column_to_rownames(row_col) %>%
+as.matrix()
+
+mode(mat) <- "numeric"
+colnames(mat) <- ko_vec
+return(mat)
+}
+
+mat_rho <- make_mat_from_wide(spko_wide, KO_list, "rho", row_col = "GTDB")
+mat_p <- make_mat_from_wide(spko_wide, KO_list, "p", row_col = "GTDB")
+mat_q <- make_mat_from_wide(spko_wide, KO_list, "FDR", row_col = "GTDB")
+
+mat_rho[is.na(mat_rho)] <- 0
+mat_p[is.na(mat_p)] <- 1
+mat_q[is.na(mat_q)] <- 1
+
+mat_rho <- mat_rho[, KO_list, drop = FALSE]
+mat_p <- mat_p[, KO_list, drop = FALSE]
+mat_q <- mat_q[, KO_list, drop = FALSE]
+
+clean_rownames <- function(mat){
+rownames(mat) <- gsub("\[ID:(\d+)\]", "\1", rownames(mat))
+mat
+}
+
+sp_list=rownames(mat_rho)
+mat_rho <- clean_rownames(mat_rho)
+mat_p <- clean_rownames(mat_p)
+mat_q <- clean_rownames(mat_q)
+
+colnames(mat_rho) <- ko_labels[colnames(mat_rho)]
+colnames(mat_p) <- ko_labels[colnames(mat_p)]
+colnames(mat_q) <- ko_labels[colnames(mat_q)]
+
+make_wide <- function(df, features, metas, value_col){
+df %>%
+filter(feature %in% features, metadata %in% metas) %>%
+select(feature, metadata, all_of(value_col)) %>%
+pivot_wider(names_from = metadata, values_from = all_of(value_col)) %>%
+column_to_rownames("feature") %>%
+.[features[features %in% rownames(.)],
+metas[metas %in% colnames(.)], drop = FALSE]
+}
+
+sp_coef <- make_wide(sp_raw, sp_all, meta_order, "coef")
+sp_pval <- make_wide(sp_raw, sp_all, meta_order, "pval")
+sp_qval <- make_wide(sp_raw, sp_all, meta_order, "FDR")
+
+sp_coef[is.na(sp_coef)] <- 0
+sp_pval[is.na(sp_pval)] <- 1
+sp_qval[is.na(sp_qval)] <- 1
+
+sp_coef <- clean_rownames(sp_coef)
+sp_pval <- clean_rownames(sp_pval)
+sp_qval <- clean_rownames(sp_qval)
+
+sp_coef <- sp_coef[rownames(mat_rho)[rownames(mat_rho) %in% rownames(sp_coef)], , drop=FALSE]
+sp_pval <- sp_pval[rownames(sp_coef), , drop=FALSE]
+sp_qval <- sp_qval[rownames(sp_coef), , drop=FALSE]
+
+ko_coef <- make_wide(ko_raw, KO_list, kometa_order, "coef")
+ko_pval <- make_wide(ko_raw, KO_list, kometa_order, "pval")
+ko_qval <- make_wide(ko_raw, KO_list, kometa_order, "qval")
+
+ko_coef[is.na(ko_coef)] <- 0
+ko_pval[is.na(ko_pval)] <- 1
+ko_qval[is.na(ko_qval)] <- 1
+
+ko_matched <- ko_coef[KO_list[KO_list %in% rownames(ko_coef)], , drop=FALSE]
+ko_matched_p <- ko_pval[KO_list[KO_list %in% rownames(ko_pval)], , drop=FALSE]
+ko_matched_q <- ko_qval[KO_list[KO_list %in% rownames(ko_qval)], , drop=FALSE]
+
+ko_coef_t <- t(ko_matched)
+ko_pval_t <- t(ko_matched_p)
+ko_qval_t <- t(ko_matched_q)
+
+colnames(ko_coef_t) <- ko_labels[colnames(ko_coef_t)]
+colnames(ko_pval_t) <- ko_labels[colnames(ko_pval_t)]
+colnames(ko_qval_t) <- ko_labels[colnames(ko_qval_t)]
+
+row_split_ko <- factor(
+case_when(
+rownames(ko_coef_t) %in% c("Milk", "Yogurt") ~ "Milk",
+rownames(ko_coef_t) %in% c("Soft drinks", "Noodles", "Bread", "Rice") ~ "Starch",
+rownames(ko_coef_t) == "General health" ~ "Health",
+TRUE ~ "Disease"
+),
+levels = c("Lifestyle", "Health", "Disease")
+)
+
+is_oral <- ifelse(sp_ko$Oral-derived bacteria==1,"Oral","Non-oral")
+
+oral_colors <- c("Oral" = "gray", "Non-oral" = "white")
+
+row_annot <- rowAnnotation(
+Oral = is_oral,
+col = list(Oral = oral_colors),
+annotation_name_gp = gpar(fontsize=5),
+annotation_name_rot = 60,
+annotation_legend_param = list(
+title_gp = gpar(fontsize=5, fontface="bold"),
+labels_gp = gpar(fontsize=5),
+grid_height = unit(1.75,"mm"),
+grid_width = unit(1.75,"mm")
+),
+simple_anno_size = unit(1.5,"mm")
+)
+
+col_breaks_rho <- c(-0.5,-0.3,-0.1,0,0.1,0.3,0.5)
+col_fun_rho <- colorRamp2(col_breaks_rho,
+c("#1a3a5c","#2d6a9f","#a8c8e8","white","salmon1","salmon2","salmon3"))
+
+col_breaks_maa <- c(0.25, 0.2, 0.1, 0.05, 0.01, 0, -0.01, -0.05, -0.1, -0.2, -0.25)
+col_fun_maa <- colorRamp2(col_breaks_maa,
+c("#E68795","#EEA3AD","#F5BFC6","#F9D5D8","#FDEBEC",
+"white",
+"#EEF5FB","#DCEAF7","#C8DEF1","#B2D1EA","#9BC4E2"))
+
+make_cell_fun_spearman <- function(qmat, pmat){
+function(j, i, x, y, width, height, fill){
+q <- qmat[i,j]
+p <- pmat[i,j]
+if(!is.na(q) && q < 0.05){
+grid.text("**", x, y, vjust=0.8, gp=gpar(fontsize=3.25))
+} else if(!is.na(p) && p < 0.05){
+grid.text("*", x, y, vjust=0.8, gp=gpar(fontsize=3.25))
+}
+}
+}
+
+make_cell_fun_maa <- function(qmat){
+function(j, i, x, y, width, height, fill){
+q <- qmat[i,j]
+if(!is.na(q) && q < 0.05){
+grid.text("**", x, y, vjust=0.8, gp=gpar(fontsize=3.25))
+} else if(!is.na(q) && q < 0.1){
+grid.text("*", x, y, vjust=0.8, gp=gpar(fontsize=3.25))
+}
+}
+}
+
+legend_param_rho <- list(
+title_gp = gpar(fontsize=5, fontface="bold"),
+labels_gp = gpar(fontsize=5),
+grid_height = unit(1.75,"mm"),
+grid_width = unit(1.75,"mm"),
+legend_height = unit(14,"mm"),
+at = c(-0.5,-0.3,0,0.3,0.5),
+tick_length = unit(0.5,"mm"),
+background_gp = gpar(lwd=0.25))
+
+legend_param_maa <- list(
+title_gp = gpar(fontsize=5, fontface="bold"),
+labels_gp = gpar(fontsize=5),
+grid_height = unit(1.75,"mm"),
+grid_width = unit(1.75,"mm"),
+legend_height = unit(14,"mm"),
+at = c(-0.5,-0.3,0,0.3,0.5),
+tick_length = unit(0.5,"mm"),
+background_gp = gpar(lwd=0.25))
+
+n_gaps_sp <- nlevels(col_split) - 1
+
+hm_sp_maa <- Heatmap(
+as.matrix(sp_coef),
+name = "MAA Coefficient\n(FDR: * < 0.1)",
+cluster_columns = FALSE,
+cluster_rows = FALSE,
+col = col_fun_maa,
+column_split = col_split,
+column_gap = unit(0.5,"mm"),
+column_title_gp = gpar(fontsize=5),
+column_names_gp = gpar(fontsize=5),
+column_names_rot = 60,
+row_split = row_split_fac,
+row_title_gp = gpar(fontsize=5),
+row_gap = unit(1,"mm"),
+row_names_side = "left",
+row_names_gp = gpar(fontsize=5),
+show_row_names = TRUE,
+show_column_names = TRUE,
+height = nrow(sp_coef) * unit(2.5,"mm"),
+width = ncol(sp_coef) * unit(2.5,"mm") + n_gaps_sp * unit(0.5,"mm"),
+heatmap_legend_param = legend_param_maa,
+left_annotation = row_annot,
+cell_fun = make_cell_fun_maa(as.matrix(sp_qval))
+)
+
+hm_main <- Heatmap(
+mat_rho,
+name = "Spearman Rho\n(P: * < 0.05, FDR: ** < 0.05)",
+cluster_columns = FALSE,
+cluster_rows = FALSE,
+col = col_fun_rho,
+row_split = row_split_fac,
+column_split = ko_split,
+row_title_gp = gpar(fontsize=5),
+row_gap = unit(1,"mm"),
+row_names_side = "right",
+show_row_names = F,
+show_column_names = TRUE,
+column_names_rot = 60,
+column_title_gp = gpar(fontsize=5),
+column_names_gp = gpar(fontsize=5),
+row_names_gp = gpar(fontsize=5),
+height = nrow(mat_rho) * unit(2.5,"mm"),
+width = ncol(mat_rho) * unit(2.5,"mm"),
+heatmap_legend_param = legend_param_rho,
+cell_fun = make_cell_fun_spearman(mat_q, mat_p)
+)
+
+pdf("Sfig7B.pdf", width=8.27, height=11.69, family="Helvetica")
+
+draw(hm_sp_maa+hm_main,
+padding = unit(c(5,40,15,2),"mm"))
+
+dev.off()

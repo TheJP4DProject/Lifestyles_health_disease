@@ -1,0 +1,168 @@
+
+rm(list=ls())
+set.seed(100)
+
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(openxlsx)
+library(reshape2)
+library(grid)
+
+par(family="Helvetica")
+
+
+stable_file <- "Supplementary Tables_260405.xlsx"
+
+
+SP_list <- read.xlsx(stable_file,
+                      sheet = "S13_TOP25",
+                      check.names = FALSE)
+
+SP_list <- SP_list[1:25, ]
+
+SP_df <- data.frame(
+  feature = SP_list$GTDB,
+  Oral = SP_list$`Oral-derived bacteria`
+)
+
+SP_df$Oral <- ifelse(SP_df$Oral == 1,
+                     "Oral−derived bacteria",
+                     "N.A.")
+
+col_O <- c(
+  "Oral−derived bacteria" = "gray60",
+  "N.A." = "white"
+)
+
+Annotation_left <- rowAnnotation(
+  Oral = SP_df$Oral,
+  col = list(Oral = col_O),
+  annotation_name_gp = gpar(fontsize = 5, fontface = "bold"),
+  simple_anno_size = unit(2, "mm")
+)
+
+
+metabo_cols <- c("Butyrate", "Acetate", "Propionate")
+
+hm_rho_1 <- SP_list %>%
+  select(GTDB, all_of(paste0(metabo_cols, "_rho")))
+
+hm_pval_1 <- SP_list %>%
+  select(GTDB, all_of(paste0(metabo_cols, "_p")))
+
+hm_fdr_1 <- SP_list %>%
+  select(GTDB, all_of(paste0(metabo_cols, "_fdr")))
+
+colnames(hm_rho_1)  <- c("feature", metabo_cols)
+colnames(hm_pval_1) <- c("feature", metabo_cols)
+colnames(hm_fdr_1)  <- c("feature", metabo_cols)
+
+hm_rho_1  <- column_to_rownames(hm_rho_1, "feature")
+hm_pval_1 <- column_to_rownames(hm_pval_1, "feature")
+hm_fdr_1  <- column_to_rownames(hm_fdr_1, "feature")
+
+
+cytokine_list <- c(
+  "TNF_alpha","IL8_CXCL8","CCL2",
+  "IFN_gamma","CXCL9","IP10_CXCL10","CXCL11"
+)
+
+hm_rho_2 <- SP_list %>%
+  select(GTDB, all_of(paste0(cytokine_list, "_rho")))
+
+hm_pval_2 <- SP_list %>%
+  select(GTDB, all_of(paste0(cytokine_list, "_p")))
+
+hm_fdr_2 <- SP_list %>%
+  select(GTDB, all_of(paste0(cytokine_list, "_fdr")))
+
+colnames(hm_rho_2)  <- c("feature", cytokine_list)
+colnames(hm_pval_2) <- c("feature", cytokine_list)
+colnames(hm_fdr_2)  <- c("feature", cytokine_list)
+
+hm_rho_2  <- column_to_rownames(hm_rho_2, "feature")
+hm_pval_2 <- column_to_rownames(hm_pval_2, "feature")
+hm_fdr_2  <- column_to_rownames(hm_fdr_2, "feature")
+
+
+hm_rho_1[is.na(hm_rho_1)] <- 0
+hm_pval_1[is.na(hm_pval_1)] <- 1
+hm_fdr_1[is.na(hm_fdr_1)] <- 1
+
+hm_rho_2[is.na(hm_rho_2)] <- 0
+hm_pval_2[is.na(hm_pval_2)] <- 1
+hm_fdr_2[is.na(hm_fdr_2)] <- 1
+
+
+top_anno_1 <- HeatmapAnnotation(
+  SCFA = anno_block(gp = gpar(fill="gray80"),
+                    labels = "SCFA",
+                    labels_gp = gpar(fontsize=6))
+)
+
+top_anno_2 <- HeatmapAnnotation(
+  Cytokine = anno_block(gp = gpar(fill="gray80"),
+                        labels = "Cytokine",
+                        labels_gp = gpar(fontsize=6))
+)
+
+
+rownames(hm_rho_1) <- gsub("\\[ID:(\\d+)\\]", "\\1", rownames(hm_rho_1))
+rownames(hm_rho_2) <- gsub("\\[ID:(\\d+)\\]", "\\1", rownames(hm_rho_2))
+
+rownames(hm_pval_1) <- rownames(hm_rho_1)
+rownames(hm_fdr_1)  <- rownames(hm_rho_1)
+
+rownames(hm_pval_2) <- rownames(hm_rho_2)
+rownames(hm_fdr_2)  <- rownames(hm_rho_2)
+
+
+col_rho_1 <- colorRamp2(c(min(hm_rho_1),0,max(hm_rho_1)),
+                        c("#2166AC","#F7F7F7","#B2182B"))
+
+hm2 <- Heatmap(
+  as.matrix(hm_rho_1),
+  name = "SCFA rho",
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  left_annotation = Annotation_left,
+  top_annotation = top_anno_1,
+  column_names_rot = 45,
+  col = col_rho_1,
+  cell_fun = function(j,i,x,y,w,h,fill){
+    if(hm_fdr_1[i,j] < 0.05){
+      grid.text("**",x,y,gp=gpar(fontsize=6))
+    } else if(hm_pval_1[i,j] < 0.05){
+      grid.text("*",x,y,gp=gpar(fontsize=6))
+    }
+  }
+)
+
+
+col_rho_2 <- colorRamp2(c(min(hm_rho_2),0,max(hm_rho_2)),
+                        c("skyblue","white","pink"))
+
+hm3 <- Heatmap(
+  as.matrix(hm_rho_2),
+  name = "Cytokine rho",
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  top_annotation = top_anno_2,
+  column_names_rot = 45,
+  col = col_rho_2,
+  cell_fun = function(j,i,x,y,w,h,fill){
+    if(hm_fdr_2[i,j] < 0.05){
+      grid.text("**",x,y,gp=gpar(fontsize=6))
+    } else if(hm_pval_2[i,j] < 0.05){
+      grid.text("*",x,y,gp=gpar(fontsize=6))
+    }
+  }
+)
+
+
+pdf("fig3d.pdf", family="Helvetica", width=8, height=6)
+draw(hm2 + hm3,
+     padding = unit(c(80,50,2,2),"mm"),
+     merge_legend = TRUE)
+dev.off()

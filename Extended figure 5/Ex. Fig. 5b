@@ -1,0 +1,161 @@
+library(openxlsx)
+library(ComplexHeatmap)
+library(circlize)
+library(ggplot2)
+library(gridExtra)
+library(ggrepel)
+library(tidyverse)
+library(readxl)
+library(ggtext)
+
+plot_list=list()
+set.seed(123)
+
+causal <- read.xlsx("Supplementary Tables_260405.xlsx",
+sheet="S9 MOTU",
+check.names = F,
+sep.names = " ")
+
+colnames(causal)[6] <- "Mediater"
+
+key=c("Vegetables","Fruits","Coffee")
+
+causal_sig <- causal %>%
+filter(Exposure %in% key,
+Outcome =="General health")
+
+maa=read.xlsx("Supplementary Tables_260405.xlsx",
+sheet="S6",
+check.names = F,
+sep.names = " ")
+
+plot_list=NULL
+
+scfa=read.csv("metabo_vs_sp_spearman_1713.csv")
+scfa=scfa[scfa$Metabo=="Butyrate",]
+scfa=scfa[scfa$P<0.05,]
+scfa=scfa[scfa$Rho>0,]
+
+r=NULL
+sp=NULL
+
+for (i in 1:(length(key)-1)){
+undocausal=causal_sig[causal_sig$Exposure==key[i],]
+undo=unique(undocausal$Mediater)
+
+sittcausal=causal_sig[causal_sig$Exposure=="Coffee",]
+sitt=unique(sittcausal$Mediater)
+
+rownames(undocausal)=undocausal$Mediater
+rownames(sittcausal)=sittcausal$Mediater
+
+common <- intersect(undo, sitt)
+
+temp=data.frame(
+feature=common,
+undo_coef=undocausal[common,"Forward_Avg_causal_mediation_effect"],
+sitt_coef=sittcausal[common,"Forward_Avg_causal_mediation_effect"]
+)
+
+highlight_species <- scfa$New[scfa$New %in% common]
+
+highlight_species_escaped <- gsub("\[", "\\[", highlight_species)
+highlight_species_escaped <- gsub("\]", "\\]", highlight_species_escaped)
+
+temp$is_highlight <- sapply(temp$feature, function(x) {
+any(sapply(highlight_species_escaped, function(sp) grepl(sp, x, ignore.case = TRUE)))
+})
+
+cor_test <- cor.test(temp$undo_coef, temp$sitt_coef, method = "spearman")
+r=rbind(r,data.frame(key=key[i],rho=cor_test$estimate,p=cor_test$p.value))
+
+temp$is_highlight=ifelse(temp$is_highlight,"Butyrate-associated bacteria","FALSE")
+
+sp=c(sp,temp$feature)
+
+p <- ggplot(temp, aes(x = sitt_coef, y = undo_coef)) +
+geom_point(aes(color = is_highlight), size = 1, alpha = 0.6) +
+scale_color_manual(values = c("Butyrate-associated bacteria" = "red",
+"FALSE" = "black")) +
+geom_smooth(method = "lm", color = "blue", size = 1, se = TRUE) +
+labs(
+title = paste0(key[i], " vs Coffee"),
+x = "Coffee ACME",
+y = paste0(key[i], " ACME")
+) +
+theme_bw() +
+theme(
+axis.title.x = element_text(size = 5, face = "bold"),
+axis.title.y = element_text(size = 5, face = "bold"),
+axis.text.x = element_text(size = 5),
+axis.text.y = element_text(size = 5),
+plot.title = element_text(size = 5, face = "bold"),
+panel.border = element_rect(color = "black", fill = NA, size = 1)
+) +
+annotate(
+"text",
+x = min(temp$sitt_coef, na.rm = TRUE),
+y = max(temp$undo_coef, na.rm = TRUE),
+label = paste("Spearman's rho =", round(cor_test$estimate, 3),
+"\nP-value =", signif(cor_test$p.value, 3)),
+hjust = 0, vjust = 1, size = 5/ggplot2::.pt, color = "black"
+)
+
+print(p)
+plot_list[[i]]=p
+}
+
+pdf("Sfig5b.pdf", width = 9, height = 2)
+grid.arrange(grobs = plot_list, ncol = 2)
+dev.off()
+
+source_data_list <- list()
+
+for (i in 1:(length(key)-1)){
+
+undocausal = causal_sig[causal_sig$Exposure == key[i],]
+undo = unique(undocausal$Mediater)
+
+sittcausal = causal_sig[causal_sig$Exposure == "Coffee",]
+sitt = unique(sittcausal$Mediater)
+
+rownames(undocausal) = undocausal$Mediater
+rownames(sittcausal) = sittcausal$Mediater
+
+common <- intersect(undo, sitt)
+
+temp = data.frame(
+feature = common,
+undo_coef = undocausal[common, "Forward_Avg_causal_mediation_effect"],
+sitt_coef = sittcausal[common, "Forward_Avg_causal_mediation_effect"]
+)
+
+highlight_species <- scfa$New[scfa$New %in% common]
+
+highlight_species_escaped <- gsub("\[", "\\[", highlight_species)
+highlight_species_escaped <- gsub("\]", "\\]", highlight_species_escaped)
+
+temp$Butyrate_flag <- sapply(temp$feature, function(x) {
+any(sapply(highlight_species_escaped, function(sp) grepl(sp, x, ignore.case = TRUE)))
+})
+
+temp$Butyrate_flag <- ifelse(temp$Butyrate_flag,
+"Butyrate-associated bacteria",
+"FALSE")
+
+temp$GTDB_name <- temp$feature
+
+temp$NCBI_name <- ifelse(grepl("\|", temp$feature),
+sub(".*\|", "", temp$feature),
+temp$feature)
+
+temp$Exposure <- key[i]
+
+source_data_list[[i]] <- temp
+}
+
+source_data <- do.call(rbind, source_data_list)
+
+write.csv(source_data,
+file = "Sfig5b.csv",
+row.names = FALSE)

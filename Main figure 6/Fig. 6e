@@ -1,0 +1,160 @@
+rm(list = ls())
+
+library(ComplexHeatmap)
+library(circlize)
+library(tidyverse)
+library(grid)
+library(ggtext)
+library(openxlsx)
+
+par(family = "Helvetica")
+
+safe_col_fun <- function(mat, low, mid, high) {
+rng <- range(mat, na.rm = TRUE)
+if (!is.finite(rng[1]) || rng[1] == rng[2]) {
+rng <- c(-0.01, 0.01)
+}
+colorRamp2(c(rng[1] / 4, 0, rng[2] / 4), c(low, mid, high))
+}
+
+extract_abbr <- function(x) {
+case_when(
+x == "General health" ~ "General health",
+str_detect(x, "\(") ~ str_extract(x, "(?<=\().+?(?=\))"),
+TRUE ~ x
+)
+}
+
+plot_df <- read.xlsx(
+"stable/Supplementary Tables_260405.xlsx",
+sheet = "Fig.6E_data",
+check.names = FALSE,
+sep.names = " "
+)
+
+feature_order <- c(
+"Acetate", "Propionate", "Butyrate",
+"TNF_alpha", "IL8_CXCL8", "CCL2", "IFN_gamma",
+"CXCL9", "IP10_CXCL10", "CXCL11"
+)
+
+metabo_features <- c("Acetate", "Propionate", "Butyrate")
+
+cytokine_features <- c(
+"TNF_alpha", "IL8_CXCL8", "CCL2", "IFN_gamma",
+"CXCL9", "IP10_CXCL10", "CXCL11"
+)
+
+outcome_order_full <- c(
+"General health",
+"Inflammatory Bowel Disease (IBD)",
+"Type 2 Diabetes (T2D)",
+"Depression",
+"Rheumatoid arthritis"
+)
+
+plot_df <- plot_df %>%
+mutate(
+Outcome = factor(Outcome, levels = outcome_order_full)
+) %>%
+arrange(Outcome)
+
+outcome_order_abbr <- extract_abbr(as.character(plot_df$Outcome))
+
+make_mat <- function(stat_suffix) {
+mat <- sapply(feature_order, function(feat) {
+plot_df[[paste0(feat, "_", stat_suffix)]]
+})
+mat <- t(mat)
+rownames(mat) <- feature_order
+colnames(mat) <- outcome_order_abbr
+mat
+}
+
+mat_rho <- make_mat("rho")
+mat_p <- make_mat("p")
+mat_fdr <- make_mat("fdr")
+
+col_split_hm <- factor(c("Health", rep("Disease", 4)),
+levels = c("Health", "Disease"))
+
+col_metabo <- colorRamp2(
+c(
+min(c(0, min(mat_rho[metabo_features, ], na.rm = TRUE))) / 2,
+min(c(0, min(mat_rho[metabo_features, ], na.rm = TRUE))) / 4,
+0,
+max(c(0, max(mat_rho[metabo_features, ], na.rm = TRUE))) / 2,
+max(c(0, max(mat_rho[metabo_features, ], na.rm = TRUE)))
+),
+c("#2166AC", "#67A9CF", "#F7F7F7", "#EF8A62", "#B2182B")
+)
+
+hm_metabo <- Heatmap(
+mat_rho[metabo_features, ],
+name = "p<0.05, FDR<0.05\nMetabolites Spearman rho",
+cluster_columns = FALSE,
+cluster_rows = FALSE,
+col = col_metabo,
+column_split = col_split_hm,
+row_title = " ",
+row_dend_side = "right",
+row_names_side = "left",
+height = nrow(mat_rho[metabo_features, ]) * unit(5, "mm"),
+width = ncol(mat_rho[metabo_features, ]) * unit(5, "mm"),
+show_row_names = TRUE,
+column_title_rot = 45,
+row_title_gp = gpar(fontsize = 10),
+row_names_gp = gpar(fontsize = 10),
+column_title_gp = gpar(fontsize = 10),
+column_names_gp = gpar(fontsize = 10),
+cell_fun = function(j, i, x, y, w, h, fill) {
+p_val <- mat_p[metabo_features, ][i, j]
+fdr_val <- mat_fdr[metabo_features, ][i, j]
+if (!is.na(fdr_val) && fdr_val < 0.05) {
+grid.text("", x, y, vjust = 0.8)
+} else if (!is.na(p_val) && p_val < 0.05) {
+grid.text("", x, y, vjust = 0.8)
+}
+}
+)
+
+col_cyto <- safe_col_fun(mat_rho[cytokine_features, ], "skyblue", "white", "pink")
+
+hm_cytokine <- Heatmap(
+mat_rho[cytokine_features, ],
+name = "p<0.05, FDR<0.05\nCytokine Spearman rho",
+cluster_columns = FALSE,
+cluster_rows = FALSE,
+col = col_cyto,
+column_split = col_split_hm,
+row_title = " ",
+row_dend_side = "right",
+row_names_side = "left",
+height = nrow(mat_rho[cytokine_features, ]) * unit(5, "mm"),
+width = ncol(mat_rho[cytokine_features, ]) * unit(5, "mm"),
+show_row_names = TRUE,
+column_title_rot = 45,
+row_title_gp = gpar(fontsize = 10),
+row_names_gp = gpar(fontsize = 10),
+column_title_gp = gpar(fontsize = 10),
+column_names_gp = gpar(fontsize = 10),
+cell_fun = function(j, i, x, y, w, h, fill) {
+p_val <- mat_p[cytokine_features, ][i, j]
+fdr_val <- mat_fdr[cytokine_features, ][i, j]
+if (!is.na(fdr_val) && fdr_val < 0.05) {
+grid.text("", x, y, vjust = 0.8)
+} else if (!is.na(p_val) && p_val < 0.05) {
+grid.text("", x, y, vjust = 0.8)
+}
+}
+)
+
+pdf("fig6e.pdf", width = 6, height = 5)
+draw(hm_metabo %v% hm_cytokine)
+dev.off()
+
+write.csv(
+plot_df,
+"fig6e.csv",
+row.names = FALSE
+)
