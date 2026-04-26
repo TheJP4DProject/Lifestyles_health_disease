@@ -1,0 +1,132 @@
+
+library(dplyr)
+library(ggplot2)
+
+causal_f <- read.csv("data/causal_input.csv")
+causal_f = causal_f[(causal_f$Avg_causal_mediation_qval<0.05)&(causal_f$Inv_Avg_causal_mediation_pval>=0.05),]
+
+name_map <- c(
+  "Vegetables" = "Vegetables",
+  "Fruit" = "Fruits",
+  "Mushroom" = "Mushrooms",
+  "Coffee" = "Coffee",
+  "Green.tea" = "Green tea",
+  "Vinegar" = "Vinegar",
+  "Tofu" = "Tofu",
+  "Natto" = "Natto",
+  "Miso" = "Miso",
+  "Pickles" = "Pickles",
+  "Kimuchi" = "Kimchi",
+  "Yogurt" = "Yogurt",
+  "Milk" = "Milk",
+  "Meat" = "Meat",
+  "Processed.meat" = "Processed meat",
+  "Seafood" = "Seafood",
+  "Egg" = "Eggs",
+  "Dressing" = "Dressing",
+  "Rice" = "Rice",
+  "Bread" = "Bread",
+  "Noodle" = "Noodles",
+  "Soft.drinks" = "Soft drinks",
+  "Alcohol" = "Alcohol",
+  "Current.smoking" = "Smoking",
+  "Strong.active" = "Strong physical activity",
+  "Moderate.active" = "Moderate physical activity",
+  "Weak.active" = "Weak physical activity",
+  "Sitting.down9.5h" = "Sitting down ≥ 9.5h",
+  "General.Health" = "General health",
+  "IBD" = "IBD",
+  "IBS" = "IBS",
+  "Liver.cirrhosis" = "Liver cirrhosis",
+  "T2D" = "T2D",
+  "Dyslipidemia" = "Dyslipidemia",
+  "Hypertension" = "Hypertension",
+  "Hyperuricemia" = "Hyperuricemia",
+  "ACS" = "IHD",
+  "CHF" = "Heart failure",
+  "Stroke" = "Stroke",
+  "Depression" = "Depression",
+  "Rheumatoid.arthritis" = "Rheumatoid arthritis",
+  "Collagen.disease" = "Collagen disease",
+  "Asthma" = "Asthma",
+  "COPD" = "COPD"
+)
+
+causal_f$Disease <- name_map[causal_f$Disease]
+causal_f$Treat <- name_map[causal_f$Treat]
+
+category_map <- data.frame(
+  Disease  = c("General health",
+               "IBD", "IBS", "Liver cirrhosis",
+               "T2D", "Dyslipidemia", "Hypertension", "Hyperuricemia",
+               "IHD", "Heart failure", "Stroke",
+               "Depression",
+               "Rheumatoid arthritis", "Collagen disease",
+               "Asthma", "COPD"),
+  Category = c("General health",
+               "Digestive", "Digestive", "Digestive",
+               "Metabolic", "Metabolic", "Metabolic", "Metabolic",
+               "Cardiovascular", "Cardiovascular", "Cardiovascular",
+               "Psychiatric",
+               "Immune", "Immune",
+               "Respiratory", "Respiratory"),
+  stringsAsFactors = FALSE
+)
+
+category_order <- c("General health", "Digestive", "Metabolic",
+                    "Cardiovascular", "Psychiatric", "Immune", "Respiratory")
+
+category_colors <- c(
+  "General health"          = "#fb9a99",
+  "Digestive"               = "#CCBE93",
+  "Metabolic"               = "#a6cee3",
+  "Cardiovascular"          = "#1f78b4",
+  "Psychiatric"             = "#b2df8a",
+  "Immune"                  = "#18BC9C",
+  "Respiratory"             = "#fdbf6f"
+)
+
+count_df <- causal_f %>%
+  count(Disease, name = "n") %>%
+  left_join(category_map, by = "Disease") %>%
+  mutate(Category = ifelse(is.na(Category), "Other", Category))
+
+count_df$Category <- factor(count_df$Category, levels = category_order)
+count_df$Disease  <- factor(count_df$Disease,  levels = category_map$Disease)
+
+count_df <- count_df %>%
+  arrange(Category, Disease)
+
+count_df$Disease <- factor(count_df$Disease, levels = count_df$Disease)
+
+bar_colors <- category_colors[as.character(count_df$Category[match(levels(count_df$Disease), count_df$Disease)])]
+
+p <- ggplot(count_df, aes(x = Disease, y = n, fill = Category)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = n), vjust = -0.5, size = 2) +
+  scale_fill_manual(values = category_colors, breaks = category_order) +
+  labs(x = NULL, y = "Count", fill = "Category") +
+  theme_classic(base_size = 5) +
+  theme(
+    axis.text.x     = element_text(angle = 45, hjust = 1, size = 5),
+    axis.text.y     = element_text(size = 5),
+    panel.border    = element_rect(color = "grey70", fill = NA, linewidth = 0.5),
+    legend.title    = element_text(size = 5),
+    legend.text     = element_text(size = 5),
+    legend.key.size = unit(5, "pt")
+  )
+
+ggsave("output.pdf", p, width = 3.6, height = 1.5, useDingbats = FALSE)
+message("Saved: output.pdf")
+
+reverse_map <- setNames(names(name_map), name_map)
+
+count_raw <- causal_f %>%
+  count(Disease, name = "n")
+
+count_raw$Disease_raw <- reverse_map[count_raw$Disease]
+count_raw$Disease_raw[is.na(count_raw$Disease_raw)] <- count_raw$Disease[is.na(count_raw$Disease_raw)]
+
+write.csv(count_raw, "output.csv", row.names = FALSE)
+
+message("Saved: output.csv")
