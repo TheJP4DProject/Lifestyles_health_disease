@@ -1,0 +1,213 @@
+rm(list=ls())
+set.seed(100)
+
+library(tidyverse)
+library(openxlsx)
+library(circlize)
+library(ComplexHeatmap)
+library(grid)
+
+ordered_df <- data.frame(
+  group = c(
+    "Vegetables", "Fruits", "Mushrooms", "Coffee", "Green tea", "Vinegar",
+    "Tofu", "Natto", "Miso", "Pickles", "Kimchi", "Yogurt", "Milk", "Meat",
+    "Processed meat", "Seafood", "Eggs", "Dressing", "Rice", "Bread", "Noodles", "Soft drinks",
+    "Alcohol", "Smoking", "Weak physical activity", "Moderate physical activity", "Strong physical activity",
+    "Sitting down ≥ 9.5h", "General health",
+    "Inflammatory Bowel Disease (IBD)", "Irritable Bowel Syndrome (IBS)", "Liver cirrhosis",
+    "Type 2 Diabetes (T2D)", "Dyslipidemia", "Hypertension", "Hyperuricemia",
+    "Congestive Heart Failure (CHF)", "Heart failure",
+    "Stroke", "Depression", "Rheumatoid arthritis", "Collagen disease", 
+    "Asthma", "Chronic Obstructive Pulmonary Disease (COPD)"
+  ),
+  annotation = c(
+    rep("Plant-based diets",3),
+    rep("Polyphenol-rich beverages",2),
+    rep("-",2),
+    rep("Fermented diets",4),
+    rep("Dairy product",2),
+    rep("Animal-based diets",5),
+    rep("Starch/Sugar-rich diets",4),
+    rep("Alcohol/Smoking",2),
+    rep("Exercise",4),
+    "Health",
+    rep("Disease",15)
+  ),
+  color = c(
+    rep("#66c2a5",3),
+    rep("#b3b3b3",2),
+    rep("white",2),
+    rep("#fc8d62",4),
+    rep("#8da0cb",2),
+    rep("#e78ac3",5),
+    rep("#a6d854",4),
+    rep("#ffd92f",2),
+    rep("#e5c494",4),
+    "white",
+    rep("black",15)
+  )
+)
+
+sp_alpha <- read.xlsx("data/input.xlsx",
+                      sheet="S4", check.names = F, sep.names = " ")
+
+beta_data <- read.xlsx("data/input.xlsx",
+                       sheet="S5", check.names = F, sep.names = " ")
+
+sp_beta <- beta_data %>%
+  filter(`Feature type` == "mOTU-based species") %>%
+  select(metadata, R2, `Adjusted P value`) %>%
+  rename(Variable = metadata, Beta_R2 = R2, Beta_Pval = `Adjusted P value`)
+
+ko_beta <- beta_data %>%
+  filter(`Feature type` != "mOTU-based species") %>%
+  select(metadata, R2, `Adjusted P value`) %>%
+  rename(Variable = metadata, Beta_R2 = R2, Beta_Pval = `Adjusted P value`)
+
+common_meta <- ordered_df$group[
+  ordered_df$group %in% sp_alpha$Variable & ordered_df$group %in% sp_beta$Variable
+]
+
+sp_alpha_matrix <- sp_alpha %>%
+  filter(Variable %in% common_meta) %>%
+  column_to_rownames("Variable") %>%
+  select(Spearman_Shannon, Spearman_Richness, `Spearman_Predicted microbial load`) %>%
+  as.matrix()
+
+sp_alpha_pval <- sp_alpha %>%
+  filter(Variable %in% common_meta) %>%
+  column_to_rownames("Variable") %>%
+  select(`Adjusted P_Shannon`, `Adjusted P_Richness`, `Adjusted P_Predicted microbial load`) %>%
+  as.matrix()
+
+missing_rows <- setdiff(common_meta, rownames(sp_alpha_matrix))
+if (length(missing_rows) > 0) {
+  sp_alpha_matrix <- rbind(sp_alpha_matrix,
+                           matrix(NA, nrow=length(missing_rows), ncol=ncol(sp_alpha_matrix),
+                                  dimnames=list(missing_rows, colnames(sp_alpha_matrix))))
+  sp_alpha_pval <- rbind(sp_alpha_pval,
+                         matrix(NA, nrow=length(missing_rows), ncol=ncol(sp_alpha_pval),
+                                dimnames=list(missing_rows, colnames(sp_alpha_pval))))
+}
+sp_alpha_matrix <- sp_alpha_matrix[common_meta, , drop=FALSE]
+sp_alpha_pval <- sp_alpha_pval[common_meta, , drop=FALSE]
+
+sp_beta_matrix <- sp_beta %>%
+  filter(Variable %in% common_meta) %>%
+  column_to_rownames("Variable") %>%
+  select(Beta_R2) %>%
+  as.matrix()
+
+missing_rows_beta <- setdiff(common_meta, rownames(sp_beta_matrix))
+if(length(missing_rows_beta) > 0){
+  sp_beta_matrix <- rbind(sp_beta_matrix,
+                          matrix(NA, nrow=length(missing_rows_beta), ncol=ncol(sp_beta_matrix),
+                                 dimnames=list(missing_rows_beta, colnames(sp_beta_matrix))))
+}
+sp_beta_matrix <- sp_beta_matrix[common_meta, , drop=FALSE]
+
+ko_beta_matrix <- ko_beta %>%
+  filter(Variable %in% common_meta) %>%
+  column_to_rownames("Variable") %>%
+  select(Beta_R2) %>%
+  as.matrix()
+
+missing_rows_ko <- setdiff(common_meta, rownames(ko_beta_matrix))
+if(length(missing_rows_ko) > 0){
+  ko_beta_matrix <- rbind(ko_beta_matrix,
+                          matrix(NA, nrow=length(missing_rows_ko), ncol=ncol(ko_beta_matrix),
+                                 dimnames=list(missing_rows_ko, colnames(ko_beta_matrix))))
+}
+ko_beta_matrix <- ko_beta_matrix[common_meta, , drop=FALSE]
+
+meta_anno <- ordered_df %>% filter(group %in% common_meta)
+
+row_split_data <- ifelse(meta_anno$annotation %in% c("Health","Disease"), "Health/Disease", "Lifestyle")
+row_split_data <- factor(row_split_data, levels=c("Lifestyle","Health/Disease"))
+
+col_map <- meta_anno %>% distinct(annotation,color) %>% { setNames(.$color, .$annotation) }
+
+left_annotation <- rowAnnotation(
+  `  ` = meta_anno$annotation,
+  col = list(`  ` = col_map),
+  simple_anno_size = unit(2,"mm")
+)
+
+sp_bar_col <- meta_anno$color
+
+make_cell_fun_alpha <- function(rho_mat, pval_mat) {
+  function(j,i,x,y,width,height,fill){
+    pval <- pval_mat[i,j]
+    rho <- rho_mat[i,j]
+    if(!is.na(pval) & pval < 0.05){
+      if(rho > 0){
+        grid.rect(x,y,width,height,gp=gpar(fill="#E68795",col="black",lwd=0.3))
+      } else {
+        grid.rect(x,y,width,height,gp=gpar(fill="#9BC4E2",col="black",lwd=0.3))
+      }
+    } else {
+      grid.rect(x,y,width,height,gp=gpar(fill="white",col="black",lwd=0.3))
+    }
+  }
+}
+
+hm_sp_alpha <- Heatmap(
+  sp_alpha_matrix,
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  show_heatmap_legend = FALSE,
+  show_row_names = TRUE,
+  row_names_side = "left",
+  row_labels = rownames(sp_alpha_matrix),
+  row_names_gp = gpar(fontfamily="Helvetica", fontsize=5),
+  show_column_names = TRUE,
+  column_names_gp = gpar(fontfamily="Helvetica", fontsize=5),
+  height = nrow(sp_alpha_matrix)*unit(3,"mm"),
+  width = ncol(sp_alpha_matrix)*unit(3,"mm"),
+  cell_fun = make_cell_fun_alpha(sp_alpha_matrix, sp_alpha_pval),
+  row_split = row_split_data,
+  left_annotation = left_annotation,
+  right_annotation = rowAnnotation(
+    SP_Beta_R2 = anno_barplot(
+      sp_beta_matrix,
+      gp = gpar(fill=sp_bar_col,lwd=0.3),
+      axis=TRUE,
+      axis_param = list(gp = gpar(fontfamily="Helvetica", fontsize=5))
+    ),
+    KO_Beta_R2 = anno_barplot(
+      abs(ko_beta_matrix),
+      gp = gpar(fill=sp_bar_col,lwd=0.3),
+      axis=TRUE,
+      axis_param = list(gp = gpar(fontfamily="Helvetica", fontsize=5))
+    ),
+    annotation_width = unit(2,"cm") * 2
+  ),
+  border = TRUE,
+  border_gp = gpar(lwd=0.5)
+)
+
+legend_annotations <- ordered_df$annotation
+legend_colors <- ordered_df$color
+
+seen <- c()
+legend_data <- data.frame(annotation=character(), color=character(), stringsAsFactors = FALSE)
+
+for(i in seq_along(legend_annotations)){
+  ann <- legend_annotations[i]
+  if(!(ann %in% seen)){
+    legend_data <- rbind(legend_data,
+      data.frame(annotation=ann,color=legend_colors[i],stringsAsFactors=FALSE))
+    seen <- c(seen, ann)
+  }
+}
+
+lgd_assoc <- Legend(
+  title = "Classification",
+  labels = legend_data$annotation,
+  legend_gp = gpar(fontfamily="Helvetica", fontsize=5, fill=legend_data$color)
+)
+
+pdf("output.pdf", family="Helvetica", width=12, height=8)
+options(encoding = "UTF-8")
+draw(hm_sp_alpha, gap=unit(5,"mm"), annotation_legend_list=list(lgd_assoc))
+dev.off()
