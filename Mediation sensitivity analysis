@@ -1,0 +1,433 @@
+# This script performs forward and inverse mediation analyses for models 2–7.
+# Each model uses the same base covariates and a predefined set of additional
+# adjustment variables. Results are combined across models and FDR-adjusted.
+
+library(mediation)
+library(foreach)
+library(doParallel)
+
+set.seed(123)
+
+num_cores <- 2
+
+args <- commandArgs(trailingOnly = TRUE)
+exposure_index <- as.numeric(args[1])
+outcome_index <- as.numeric(args[2])
+
+BASE_RESULT_FILE <- "data/base_mediation_results.csv"
+FINAL_NAME_FILE <- "data/final_name_reference.csv"
+METADATA_FILE <- "data/metadata.csv"
+ABUNDANCE_FILE <- "data/motu_abundance.csv"
+OUTPUT_DIR <- "results/mediation_models"
+
+dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+metadata <- read.csv(
+  METADATA_FILE,
+  check.names = FALSE
+)
+
+colnames(metadata)[c(3:5, 51:55)] <- paste0("ADJ", 1:8)
+
+exposure_names <- colnames(metadata)[6:33]
+outcome_names <- colnames(metadata)[c(34:41, 43:50)]
+
+exposure <- exposure_names[exposure_index]
+outcome <- outcome_names[outcome_index]
+
+colnames(metadata)[2] <- "SampleID"
+metadata <- metadata[!is.na(metadata$SampleID), ]
+rownames(metadata) <- metadata$SampleID
+
+abundance <- read.csv(
+  ABUNDANCE_FILE,
+  row.names = 1,
+  check.names = FALSE
+)
+
+abundance <- abundance[rownames(metadata), , drop = FALSE]
+abundance[abundance == 0] <- min(abundance[abundance > 0], na.rm = TRUE) / 2
+abundance <- log10(abundance)
+
+base_results <- read.csv(
+  BASE_RESULT_FILE,
+  check.names = FALSE
+)
+
+base_results <- base_results[
+  base_results$Treat == exposure &
+    base_results$Disease == outcome,
+  ,
+  drop = FALSE
+]
+
+final_names <- read.csv(
+  FINAL_NAME_FILE,
+  check.names = FALSE
+)
+
+exposure_output <- exposure
+outcome_output <- outcome
+
+exposure_match <- unique(
+  final_names$Treat[
+    tolower(gsub("[._]+", " ", final_names$Treat)) ==
+      tolower(gsub("[._]+", " ", exposure))
+  ]
+)
+
+outcome_match <- unique(
+  final_names$Disease[
+    tolower(gsub("[._]+", " ", final_names$Disease)) ==
+      tolower(gsub("[._]+", " ", outcome))
+  ]
+)
+
+if (length(exposure_match) > 0) {
+  exposure_output <- exposure_match[1]
+}
+
+if (length(outcome_match) > 0) {
+  outcome_output <- outcome_match[1]
+}
+
+base_covariates <- c(
+  "ADJ1", "ADJ2", "ADJ3",
+  "ADJ4", "ADJ5", "ADJ6",
+  "ADJ8"
+)
+
+adjustment_sets <- list(
+  model2 = c("Vegetables", "Fruit", "Natto"),
+  model3 = "Soft.drinks",
+  model4 = "Moderate.active",
+  model5 = "Sitting.down9.5h",
+  model6 = c("Alcohol", "Current.smoking"),
+  model7 = c(
+    "Vegetables",
+    "Fruit",
+    "Natto",
+    "Soft.drinks",
+    "Moderate.active",
+    "Sitting.down9.5h",
+    "Alcohol",
+    "Current.smoking"
+  )
+)
+
+extract_mediation_result <- function(object, prefix) {
+  if (inherits(object, "try-error")) {
+    result <- data.frame(
+      Avg_causal_mediation_effect = NA,
+      Avg_causal_mediation_pval = NA,
+      Avg_causal_mediation_ci_2.5 = NA,
+      Avg_causal_mediation_ci_97.5 = NA,
+      Avg_causal_direct_effect = NA,
+      Avg_causal_direct_pval = NA,
+      Avg_causal_direct_ci_2.5 = NA,
+      Avg_causal_direct_ci_97.5 = NA,
+      Prop_mediated = NA,
+      Prop_mediated_pval = NA,
+      Prop_mediated_ci_2.5 = NA,
+      Prop_mediated_ci_97.5 = NA,
+      Avg_total_effect = NA,
+      Avg_total_pval = NA,
+      Avg_total_ci_2.5 = NA,
+      Avg_total_ci_97.5 = NA
+    )
+  } else {
+    result <- data.frame(
+      Avg_causal_mediation_effect = object$d.avg,
+      Avg_causal_mediation_pval = object$d.avg.p,
+      Avg_causal_mediation_ci_2.5 = object$d.avg.ci[1],
+      Avg_causal_mediation_ci_97.5 = object$d.avg.ci[2],
+      Avg_causal_direct_effect = object$z.avg,
+      Avg_causal_direct_pval = object$z.avg.p,
+      Avg_causal_direct_ci_2.5 = object$z.avg.ci[1],
+      Avg_causal_direct_ci_97.5 = object$z.avg.ci[2],
+      Prop_mediated = object$n.avg,
+      Prop_mediated_pval = object$n.avg.p,
+      Prop_mediated_ci_2.5 = object$n.avg.ci[1],
+      Prop_mediated_ci_97.5 = object$n.avg.ci[2],
+      Avg_total_effect = object$tau.coef,
+      Avg_total_pval = object$tau.p,
+      Avg_total_ci_2.5 = object$tau.ci[1],
+      Avg_total_ci_97.5 = object$tau.ci[2]
+    )
+  }
+
+  colnames(result) <- paste0(prefix, colnames(result))
+  result
+}
+
+empty_model_result <- function(model_name, status) {
+  result <- data.frame(
+    added_covars = NA,
+    all_covars = NA,
+    N = NA,
+    extract_mediation_result("try-error", "for_"),
+    extract_mediation_result("try-error", "inv_"),
+    status = status,
+    stringsAsFactors = FALSE
+  )
+
+  colnames(result) <- paste0(model_name, "_", colnames(result))
+  result
+}
+
+run_mediation_model <- function(
+    mediator,
+    metadata,
+    exposure,
+    outcome,
+    extra_covariates,
+    model_name
+) {
+  extra_covariates <- setdiff(extra_covariates, exposure)
+
+  if (length(extra_covariates) == 0) {
+    return(
+      empty_model_result(
+        model_name,
+        "no_extra_covariate"
+      )
+    )
+  }
+
+  covariates <- unique(c(base_covariates, extra_covariates))
+
+  analysis_data <- cbind(
+    mediator = mediator,
+    metadata[
+      ,
+      c(exposure, outcome, covariates),
+      drop = FALSE
+    ]
+  )
+
+  analysis_data <- as.data.frame(
+    lapply(analysis_data, as.numeric)
+  )
+
+  analysis_data <- na.omit(analysis_data)
+
+  colnames(analysis_data) <- c(
+    "mediator",
+    "exposure",
+    "outcome",
+    paste0("adj", seq_along(covariates))
+  )
+
+  adjustment_terms <- paste(
+    paste0("adj", seq_along(covariates)),
+    collapse = " + "
+  )
+
+  mediator_formula <- as.formula(
+    paste("mediator ~ exposure +", adjustment_terms)
+  )
+
+  outcome_formula <- as.formula(
+    paste("outcome ~ exposure + mediator +", adjustment_terms)
+  )
+
+  inverse_mediator_formula <- as.formula(
+    paste("outcome ~ exposure +", adjustment_terms)
+  )
+
+  inverse_outcome_formula <- as.formula(
+    paste("mediator ~ outcome + exposure +", adjustment_terms)
+  )
+
+  mediator_model <- lm(
+    mediator_formula,
+    data = analysis_data
+  )
+
+  if (all(analysis_data$outcome %in% c(0, 1))) {
+    outcome_model <- glm(
+      outcome_formula,
+      data = analysis_data,
+      family = binomial()
+    )
+
+    inverse_mediator_model <- glm(
+      inverse_mediator_formula,
+      data = analysis_data,
+      family = binomial()
+    )
+  } else {
+    outcome_model <- lm(
+      outcome_formula,
+      data = analysis_data
+    )
+
+    inverse_mediator_model <- lm(
+      inverse_mediator_formula,
+      data = analysis_data
+    )
+  }
+
+  inverse_outcome_model <- lm(
+    inverse_outcome_formula,
+    data = analysis_data
+  )
+
+  set.seed(123)
+
+  forward_result <- try(
+    mediate(
+      mediator_model,
+      outcome_model,
+      sims = 1000,
+      treat = "exposure",
+      mediator = "mediator"
+    ),
+    silent = TRUE
+  )
+
+  set.seed(123)
+
+  inverse_result <- try(
+    mediate(
+      inverse_mediator_model,
+      inverse_outcome_model,
+      sims = 1000,
+      treat = "exposure",
+      mediator = "outcome"
+    ),
+    silent = TRUE
+  )
+
+  result <- data.frame(
+    added_covars = paste(extra_covariates, collapse = ","),
+    all_covars = paste(covariates, collapse = ","),
+    N = nrow(analysis_data),
+    extract_mediation_result(forward_result, "for_"),
+    extract_mediation_result(inverse_result, "inv_"),
+    status = ifelse(
+      inherits(forward_result, "try-error") |
+        inherits(inverse_result, "try-error"),
+      "mediation_error",
+      "ok"
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  colnames(result) <- paste0(model_name, "_", colnames(result))
+  result
+}
+
+cluster <- parallel::makeForkCluster(num_cores)
+registerDoParallel(cluster)
+
+model_results <- foreach(
+  row_index = seq_len(nrow(base_results)),
+  .combine = rbind,
+  .packages = "mediation"
+) %dopar% {
+  mediator_name <- as.character(
+    base_results$Mediater[row_index]
+  )
+
+  if (!(mediator_name %in% colnames(abundance))) {
+    do.call(
+      cbind,
+      lapply(
+        names(adjustment_sets),
+        function(model_name) {
+          empty_model_result(
+            model_name,
+            "mediator_not_found"
+          )
+        }
+      )
+    )
+  } else {
+    mediator <- abundance[, mediator_name]
+
+    do.call(
+      cbind,
+      lapply(
+        names(adjustment_sets),
+        function(model_name) {
+          tryCatch(
+            run_mediation_model(
+              mediator = mediator,
+              metadata = metadata,
+              exposure = exposure,
+              outcome = outcome,
+              extra_covariates = adjustment_sets[[model_name]],
+              model_name = model_name
+            ),
+            error = function(e) {
+              empty_model_result(
+                model_name,
+                "model_error"
+              )
+            }
+          )
+        }
+      )
+    )
+  }
+}
+
+parallel::stopCluster(cluster)
+
+results <- cbind(
+  base_results,
+  model_results
+)
+
+results$Treat <- exposure_output
+results$Disease <- outcome_output
+
+for (model_name in names(adjustment_sets)) {
+  forward_p <- paste0(
+    model_name,
+    "_for_Avg_causal_mediation_pval"
+  )
+
+  inverse_p <- paste0(
+    model_name,
+    "_inv_Avg_causal_mediation_pval"
+  )
+
+  results[[
+    paste0(
+      model_name,
+      "_for_Avg_causal_mediation_qval"
+    )
+  ]] <- p.adjust(
+    results[[forward_p]],
+    method = "fdr"
+  )
+
+  results[[
+    paste0(
+      model_name,
+      "_inv_Avg_causal_mediation_qval"
+    )
+  ]] <- p.adjust(
+    results[[inverse_p]],
+    method = "fdr"
+  )
+}
+
+output_file <- file.path(
+  OUTPUT_DIR,
+  paste0(
+    "mediation_models_",
+    exposure_index,
+    "_",
+    outcome_index,
+    ".csv"
+  )
+)
+
+write.csv(
+  results,
+  output_file,
+  row.names = FALSE
+)
