@@ -1,163 +1,196 @@
+# This script calculates Bray-Curtis distance matrices for MO, mOTU, and KO
+# profiles, then tests their associations with metadata variables using adonis2.
+# Models are adjusted for ten predefined covariates and log10 sequencing depth.
+
 library(vegan)
 library(openxlsx)
+library(parallelDist)
 library(doParallel)
 library(foreach)
 
 registerDoParallel(cores = 10)
 
-metadata <- read.xlsx("../meta2_full.xlsx")
-metadata <- metadata[, c(-2, -3)]
-rownames(metadata) <- metadata[, 1]
+METADATA_FILE <- "data/metadata.xlsx"
+DEPTH_FILE <- "data/sequencing_depth.tsv"
 
-modify_rownames <- function(df) {
-old_names <- rownames(df)
-new_names <- sapply(old_names, function(name) {
-num_name <- suppressWarnings(as.numeric(name))
-if (!is.na(num_name)) {
-return(as.character(num_name))
-} else {
-return(name)
-}
-})
-rownames(df) <- new_names
-return(df)
-}
-metadata <- modify_rownames(metadata)
+MO_FILE <- "data/mo_abundance.tsv"
+MOTU_FILE <- "data/motu_abundance.xlsx"
+KO_FILE <- "data/ko_abundance.xlsx"
+
+OUTPUT_DIR <- "results/beta_diversity"
+dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+metadata <- read.xlsx(METADATA_FILE, check.names = FALSE)
+metadata <- metadata[, -c(2, 3)]
+rownames(metadata) <- metadata[[1]]
 
 fixkey <- colnames(metadata)[2:11]
-diskey <- colnames(metadata)[12:72]
+test_cols <- colnames(metadata)[12:72]
 
-cat("预载距离矩阵...\n")
-bc_files <- c(
-motu = "bc_motusp_6803.rds",
-KO = "bc_KO_6803.rds",
+depth <- read.table(
+  DEPTH_FILE,
+  sep = "\t",
+  header = FALSE,
+  stringsAsFactors = FALSE
+)[, c(1, 6)]
 
+colnames(depth) <- c("SampleID", "Depth")
+
+metadata$Depth_log10 <- log10(
+  depth$Depth[match(rownames(metadata), depth$SampleID)]
 )
 
-bc_matrices <- list()
-for (type in names(bc_files)) {
-bc_mat <- readRDS(file.path(".", bc_files[type]))
-bc_matrices[[type]] <- bc_mat
+calculate_bc <- function(data, prevalence = 0.025) {
+  common <- intersect(rownames(data), rownames(metadata))
+  data <- data[common, , drop = FALSE]
+  data <- data[, colMeans(data > 0) > prevalence, drop = FALSE]
 
+  bc <- as.matrix(
+    parDist(
+      as.matrix(data),
+      method = "bray",
+      threads = 10
+    )
+  )
+
+  rownames(bc) <- colnames(bc) <- rownames(data)
+  bc
 }
 
-tasks <- list()
-for (type in names(bc_matrices)) {
-for (meta_var in diskey) {
-tasks[[length(tasks) + 1]] <- list(
-data_type = type,
-metadata_var = meta_var,
-bc_matrix = bc_matrices[[type]]
-)
-}
-}
-
-output_dir <- "adonis2"
-
-start_time <- Sys.time()
-
-progress_file <- file.path(output_dir, "progress.txt")
-
-null_results <- foreach(task = tasks, .packages = "vegan") %dopar% {
-type <- task$data_type
-meta_var <- task$metadata_var
-bc_matrix <- task$bc_matrix
-
-task_id <- paste(type, gsub("[^a-zA-Z0-9]", "*", meta_var), sep = "*")
-output_file <- file.path(output_dir, paste0(task_id, ".csv"))
-
-if (file.exists(output_file)) {
-return(NULL)
-}
-
-if (!(meta_var %in% colnames(metadata))) {
-return(NULL)
-}
-
-temp_df <- metadata
-
-for (col in c(meta_var, fixkey)) {
-if (col %in% colnames(temp_df) && !is.numeric(temp_df[[col]])) {
-temp_df[[col]] <- as.factor(temp_df[[col]])
-}
-}
-
-needed_cols <- c(meta_var, fixkey)
-needed_cols <- needed_cols[needed_cols %in% colnames(temp_df)]
-complete_cases <- complete.cases(temp_df[, needed_cols, drop = FALSE])
-temp_df_subset <- temp_df[complete_cases, , drop = FALSE]
-
-if (nrow(temp_df_subset) < 10) {
-return(NULL)
-}
-
-common_samples <- intersect(rownames(temp_df_subset), rownames(bc_matrix))
-if (length(common_samples) < 10) {
-return(NULL)
-}
-
-temp_df_subset <- temp_df_subset[common_samples, , drop = FALSE]
-dist_subset <- as.dist(bc_matrix[common_samples, common_samples])
-
-formula_str <- paste("dist_subset ~", meta_var, "+", paste(fixkey, collapse = " + "))
-
-result_df <- data.frame()
-try({
-set.seed(123)
-adonis_result <- adonis2(
-as.formula(formula_str),
-data = temp_df_subset,
-permutations = 999,
-by = "term",
-parallel = 1
+mo <- read.table(
+  MO_FILE,
+  sep = "\t",
+  header = TRUE,
+  row.names = 1,
+  check.names = FALSE
 )
 
-if (nrow(adonis_result) > 0) {
-  result_df <- as.data.frame(adonis_result)
-  result_df$term <- rownames(adonis_result)
-  result_df$metadata_var <- meta_var
-  result_df$n_samples <- length(common_samples)
-  result_df$model <- formula_str
-  result_df$data_type <- type
+colnames(mo) <- c(colnames(mo)[-1], "remove")
+mo <- t(mo[, -ncol(mo)])
+
+motu <- read.xlsx(
+  MOTU_FILE,
+  rowNames = TRUE,
+  check.names = FALSE
+)
+
+motu <- motu[
+  ,
+  colnames(motu) != "Unassigned species",
+  drop = FALSE
+]
+
+ko <- read.xlsx(
+  KO_FILE,
+  rowNames = TRUE,
+  check.names = FALSE
+)
+
+ko <- t(ko)
+
+bc_matrices <- list(
+  MO = calculate_bc(mo),
+  motu = calculate_bc(motu),
+  KO = calculate_bc(ko)
+)
+
+saveRDS(
+  bc_matrices$MO,
+  file.path(OUTPUT_DIR, "bc_MO.rds")
+)
+
+saveRDS(
+  bc_matrices$motu,
+  file.path(OUTPUT_DIR, "bc_motu.rds")
+)
+
+saveRDS(
+  bc_matrices$KO,
+  file.path(OUTPUT_DIR, "bc_KO.rds")
+)
+
+tasks <- expand.grid(
+  data_type = names(bc_matrices),
+  metadata_var = test_cols,
+  stringsAsFactors = FALSE
+)
+
+results <- foreach(
+  i = seq_len(nrow(tasks)),
+  .combine = rbind,
+  .packages = "vegan"
+) %dopar% {
+  type <- tasks$data_type[i]
+  var <- tasks$metadata_var[i]
+  bc <- bc_matrices[[type]]
+
+  samples <- intersect(rownames(metadata), rownames(bc))
+
+  meta <- metadata[
+    samples,
+    c(var, fixkey, "Depth_log10"),
+    drop = FALSE
+  ]
+
+  meta <- meta[complete.cases(meta), , drop = FALSE]
+  bc <- bc[rownames(meta), rownames(meta), drop = FALSE]
+
+  meta[] <- lapply(
+    meta,
+    function(x) if (is.character(x)) factor(x) else x
+  )
+
+  formula_text <- paste(
+    "as.dist(bc) ~",
+    paste(
+      sprintf("`%s`", c(var, fixkey, "Depth_log10")),
+      collapse = " + "
+    )
+  )
+
+  set.seed(123)
+
+  fit <- adonis2(
+    as.formula(formula_text),
+    data = meta,
+    permutations = 999,
+    by = "term"
+  )
+
+  result <- as.data.frame(fit)
+  result$term <- rownames(result)
+  result$data_type <- type
+  result$metadata_var <- var
+  result$n_samples <- nrow(meta)
+
+  result <- result[
+    gsub("`", "", result$term) == var,
+    ,
+    drop = FALSE
+  ]
+
+  result[, c(
+    "data_type",
+    "metadata_var",
+    "term",
+    "n_samples",
+    setdiff(
+      colnames(result),
+      c("data_type", "metadata_var", "term", "n_samples")
+    )
+  )]
 }
 
-})
+results$FDR <- ave(
+  results[["Pr(>F)"]],
+  results$data_type,
+  FUN = function(p) p.adjust(p, method = "BH")
+)
 
-if (nrow(result_df) > 0) {
-write.csv(result_df, file = output_file, row.names = FALSE)
-}
-
-return(NULL)
-}
-
-end_time <- Sys.time()
+write.csv(
+  results,
+  file.path(OUTPUT_DIR, "adonis2_results.csv"),
+  row.names = FALSE
+)
 
 stopImplicitCluster()
-
-all_csv_files <- list.files(output_dir, pattern = "\.csv$", full.names = TRUE)
-
-if (length(all_csv_files) > 0) {
-all_results <- data.frame()
-
-for (csv_file in all_csv_files) {
-try({
-df <- read.csv(csv_file)
-all_results <- rbind(all_results, df)
-})
-}
-
-if (nrow(all_results) > 0) {
-write.csv(all_results, file = "adonis2_all_results.csv", row.names = FALSE)
-saveRDS(all_results, file = "adonis2_all_results.rds", compress = 6)
-
-
-for (type in unique(all_results$data_type)) {
-  type_data <- all_results[all_results$data_type == type, ]
-  n_vars <- length(unique(type_data$metadata_var))
-  n_rows <- nrow(type_data)
-  n_sig <- sum(type_data$`Pr(>F)` < 0.05, na.rm = TRUE)
-}
-
-
-}
-}
