@@ -1,168 +1,450 @@
-
-rm(list=ls())
+rm(list = ls())
 set.seed(100)
 
 library(tidyverse)
 library(ComplexHeatmap)
 library(circlize)
 library(openxlsx)
-library(reshape2)
 library(grid)
 
-par(family="Helvetica")
+# ============================================================
+# File paths
+# ============================================================
 
+INPUT_FILE <- "data/supplementary_tables.xlsx"
+OUTPUT_FILE <- "results/figures/top20_scfa_cytokine_heatmap.pdf"
 
-stable_file <- "Supplementary Tables_260405.xlsx"
-
-
-SP_list <- read.xlsx(stable_file,
-                      sheet = "S13_TOP25",
-                      check.names = FALSE)
-
-SP_list <- SP_list[1:25, ]
-
-SP_df <- data.frame(
-  feature = SP_list$GTDB,
-  Oral = SP_list$`Oral-derived bacteria`
+dir.create(
+  dirname(OUTPUT_FILE),
+  recursive = TRUE,
+  showWarnings = FALSE
 )
 
-SP_df$Oral <- ifelse(SP_df$Oral == 1,
-                     "Oral−derived bacteria",
-                     "N.A.")
+# ============================================================
+# Read top 20 species
+# ============================================================
 
-col_O <- c(
-  "Oral−derived bacteria" = "gray60",
+species_data <- read.xlsx(
+  INPUT_FILE,
+  sheet = "S13_TOP20",
+  check.names = FALSE
+)
+
+species_data <- species_data[
+  1:20,
+  ,
+  drop = FALSE
+]
+
+# ============================================================
+# Oral-derived bacteria annotation
+# ============================================================
+
+species_annotation <- data.frame(
+  Species = species_data$GTDB,
+  Oral = ifelse(
+    species_data$`Oral-derived bacteria` == 1,
+    "Oral-derived bacteria",
+    "N.A."
+  ),
+  stringsAsFactors = FALSE
+)
+
+oral_colors <- c(
+  "Oral-derived bacteria" = "gray60",
   "N.A." = "white"
 )
 
-Annotation_left <- rowAnnotation(
-  Oral = SP_df$Oral,
-  col = list(Oral = col_O),
-  annotation_name_gp = gpar(fontsize = 5, fontface = "bold"),
-  simple_anno_size = unit(2, "mm")
+left_annotation <- rowAnnotation(
+  Oral = species_annotation$Oral,
+  col = list(
+    Oral = oral_colors
+  ),
+  annotation_name_gp = gpar(
+    fontsize = 5,
+    fontface = "bold"
+  ),
+  simple_anno_size = unit(
+    2,
+    "mm"
+  )
 )
 
+# ============================================================
+# SCFA association matrices
+# ============================================================
 
-metabo_cols <- c("Butyrate", "Acetate", "Propionate")
-
-hm_rho_1 <- SP_list %>%
-  select(GTDB, all_of(paste0(metabo_cols, "_rho")))
-
-hm_pval_1 <- SP_list %>%
-  select(GTDB, all_of(paste0(metabo_cols, "_p")))
-
-hm_fdr_1 <- SP_list %>%
-  select(GTDB, all_of(paste0(metabo_cols, "_fdr")))
-
-colnames(hm_rho_1)  <- c("feature", metabo_cols)
-colnames(hm_pval_1) <- c("feature", metabo_cols)
-colnames(hm_fdr_1)  <- c("feature", metabo_cols)
-
-hm_rho_1  <- column_to_rownames(hm_rho_1, "feature")
-hm_pval_1 <- column_to_rownames(hm_pval_1, "feature")
-hm_fdr_1  <- column_to_rownames(hm_fdr_1, "feature")
-
-
-cytokine_list <- c(
-  "TNF_alpha","IL8_CXCL8","CCL2",
-  "IFN_gamma","CXCL9","IP10_CXCL10","CXCL11"
+scfa_variables <- c(
+  "Butyrate",
+  "Acetate",
+  "Propionate"
 )
 
-hm_rho_2 <- SP_list %>%
-  select(GTDB, all_of(paste0(cytokine_list, "_rho")))
+scfa_rho <- species_data %>%
+  select(
+    GTDB,
+    all_of(
+      paste0(
+        scfa_variables,
+        "_rho"
+      )
+    )
+  ) %>%
+  column_to_rownames(
+    "GTDB"
+  ) %>%
+  as.matrix()
 
-hm_pval_2 <- SP_list %>%
-  select(GTDB, all_of(paste0(cytokine_list, "_p")))
+scfa_p <- species_data %>%
+  select(
+    GTDB,
+    all_of(
+      paste0(
+        scfa_variables,
+        "_p"
+      )
+    )
+  ) %>%
+  column_to_rownames(
+    "GTDB"
+  ) %>%
+  as.matrix()
 
-hm_fdr_2 <- SP_list %>%
-  select(GTDB, all_of(paste0(cytokine_list, "_fdr")))
+scfa_fdr <- species_data %>%
+  select(
+    GTDB,
+    all_of(
+      paste0(
+        scfa_variables,
+        "_fdr"
+      )
+    )
+  ) %>%
+  column_to_rownames(
+    "GTDB"
+  ) %>%
+  as.matrix()
 
-colnames(hm_rho_2)  <- c("feature", cytokine_list)
-colnames(hm_pval_2) <- c("feature", cytokine_list)
-colnames(hm_fdr_2)  <- c("feature", cytokine_list)
+colnames(scfa_rho) <- scfa_variables
+colnames(scfa_p) <- scfa_variables
+colnames(scfa_fdr) <- scfa_variables
 
-hm_rho_2  <- column_to_rownames(hm_rho_2, "feature")
-hm_pval_2 <- column_to_rownames(hm_pval_2, "feature")
-hm_fdr_2  <- column_to_rownames(hm_fdr_2, "feature")
+# ============================================================
+# Cytokine association matrices
+# ============================================================
 
-
-hm_rho_1[is.na(hm_rho_1)] <- 0
-hm_pval_1[is.na(hm_pval_1)] <- 1
-hm_fdr_1[is.na(hm_fdr_1)] <- 1
-
-hm_rho_2[is.na(hm_rho_2)] <- 0
-hm_pval_2[is.na(hm_pval_2)] <- 1
-hm_fdr_2[is.na(hm_fdr_2)] <- 1
-
-
-top_anno_1 <- HeatmapAnnotation(
-  SCFA = anno_block(gp = gpar(fill="gray80"),
-                    labels = "SCFA",
-                    labels_gp = gpar(fontsize=6))
+cytokine_variables <- c(
+  "TNF_alpha",
+  "IL8_CXCL8",
+  "CCL2",
+  "IFN_gamma",
+  "CXCL9",
+  "IP10_CXCL10",
+  "CXCL11"
 )
 
-top_anno_2 <- HeatmapAnnotation(
-  Cytokine = anno_block(gp = gpar(fill="gray80"),
-                        labels = "Cytokine",
-                        labels_gp = gpar(fontsize=6))
+cytokine_rho <- species_data %>%
+  select(
+    GTDB,
+    all_of(
+      paste0(
+        cytokine_variables,
+        "_rho"
+      )
+    )
+  ) %>%
+  column_to_rownames(
+    "GTDB"
+  ) %>%
+  as.matrix()
+
+cytokine_p <- species_data %>%
+  select(
+    GTDB,
+    all_of(
+      paste0(
+        cytokine_variables,
+        "_p"
+      )
+    )
+  ) %>%
+  column_to_rownames(
+    "GTDB"
+  ) %>%
+  as.matrix()
+
+cytokine_fdr <- species_data %>%
+  select(
+    GTDB,
+    all_of(
+      paste0(
+        cytokine_variables,
+        "_fdr"
+      )
+    )
+  ) %>%
+  column_to_rownames(
+    "GTDB"
+  ) %>%
+  as.matrix()
+
+colnames(cytokine_rho) <- cytokine_variables
+colnames(cytokine_p) <- cytokine_variables
+colnames(cytokine_fdr) <- cytokine_variables
+
+# ============================================================
+# Missing values
+# ============================================================
+
+scfa_rho[is.na(scfa_rho)] <- 0
+scfa_p[is.na(scfa_p)] <- 1
+scfa_fdr[is.na(scfa_fdr)] <- 1
+
+cytokine_rho[is.na(cytokine_rho)] <- 0
+cytokine_p[is.na(cytokine_p)] <- 1
+cytokine_fdr[is.na(cytokine_fdr)] <- 1
+
+# ============================================================
+# Species labels
+# ============================================================
+
+species_labels <- gsub(
+  "\\[ID:(\\d+)\\]",
+  "\\1",
+  rownames(scfa_rho)
 )
 
+rownames(scfa_rho) <- species_labels
+rownames(scfa_p) <- species_labels
+rownames(scfa_fdr) <- species_labels
 
-rownames(hm_rho_1) <- gsub("\\[ID:(\\d+)\\]", "\\1", rownames(hm_rho_1))
-rownames(hm_rho_2) <- gsub("\\[ID:(\\d+)\\]", "\\1", rownames(hm_rho_2))
+rownames(cytokine_rho) <- species_labels
+rownames(cytokine_p) <- species_labels
+rownames(cytokine_fdr) <- species_labels
 
-rownames(hm_pval_1) <- rownames(hm_rho_1)
-rownames(hm_fdr_1)  <- rownames(hm_rho_1)
+# ============================================================
+# Heatmap annotations
+# ============================================================
 
-rownames(hm_pval_2) <- rownames(hm_rho_2)
-rownames(hm_fdr_2)  <- rownames(hm_rho_2)
+scfa_top_annotation <- HeatmapAnnotation(
+  SCFA = anno_block(
+    gp = gpar(
+      fill = "gray80",
+      col = "gray80"
+    ),
+    labels = "SCFA",
+    labels_gp = gpar(
+      fontsize = 6
+    )
+  ),
+  annotation_height = unit(
+    4,
+    "mm"
+  )
+)
 
+cytokine_top_annotation <- HeatmapAnnotation(
+  Cytokine = anno_block(
+    gp = gpar(
+      fill = "gray80",
+      col = "gray80"
+    ),
+    labels = "Cytokine",
+    labels_gp = gpar(
+      fontsize = 6
+    )
+  ),
+  annotation_height = unit(
+    4,
+    "mm"
+  )
+)
 
-col_rho_1 <- colorRamp2(c(min(hm_rho_1),0,max(hm_rho_1)),
-                        c("#2166AC","#F7F7F7","#B2182B"))
+# ============================================================
+# SCFA heatmap
+# ============================================================
 
-hm2 <- Heatmap(
-  as.matrix(hm_rho_1),
+scfa_color <- colorRamp2(
+  c(
+    min(scfa_rho),
+    0,
+    max(scfa_rho)
+  ),
+  c(
+    "#2166AC",
+    "#F7F7F7",
+    "#B2182B"
+  )
+)
+
+scfa_heatmap <- Heatmap(
+  scfa_rho,
   name = "SCFA rho",
   cluster_rows = FALSE,
   cluster_columns = FALSE,
-  left_annotation = Annotation_left,
-  top_annotation = top_anno_1,
+  left_annotation = left_annotation,
+  top_annotation = scfa_top_annotation,
+  column_names_side = "bottom",
+  row_names_side = "left",
   column_names_rot = 45,
-  col = col_rho_1,
-  cell_fun = function(j,i,x,y,w,h,fill){
-    if(hm_fdr_1[i,j] < 0.05){
-      grid.text("**",x,y,gp=gpar(fontsize=6))
-    } else if(hm_pval_1[i,j] < 0.05){
-      grid.text("*",x,y,gp=gpar(fontsize=6))
+  height = nrow(scfa_rho) *
+    unit(
+      2.8,
+      "mm"
+    ),
+  width = ncol(scfa_rho) *
+    unit(
+      2.8,
+      "mm"
+    ),
+  column_names_gp = gpar(
+    fontsize = 5.5
+  ),
+  row_names_gp = gpar(
+    fontsize = 5.5
+  ),
+  col = scfa_color,
+  cell_fun = function(
+      j,
+      i,
+      x,
+      y,
+      width,
+      height,
+      fill
+  ) {
+
+    if (scfa_fdr[i, j] < 0.05) {
+
+      grid.text(
+        "**",
+        x,
+        y,
+        gp = gpar(
+          fontsize = 6
+        )
+      )
+
+    } else if (scfa_p[i, j] < 0.05) {
+
+      grid.text(
+        "*",
+        x,
+        y,
+        gp = gpar(
+          fontsize = 6
+        )
+      )
     }
   }
 )
 
+# ============================================================
+# Cytokine heatmap
+# ============================================================
 
-col_rho_2 <- colorRamp2(c(min(hm_rho_2),0,max(hm_rho_2)),
-                        c("skyblue","white","pink"))
+cytokine_color <- colorRamp2(
+  c(
+    min(cytokine_rho),
+    0,
+    max(cytokine_rho)
+  ),
+  c(
+    "skyblue",
+    "white",
+    "pink"
+  )
+)
 
-hm3 <- Heatmap(
-  as.matrix(hm_rho_2),
+cytokine_heatmap <- Heatmap(
+  cytokine_rho,
   name = "Cytokine rho",
   cluster_rows = FALSE,
   cluster_columns = FALSE,
-  top_annotation = top_anno_2,
+  top_annotation = cytokine_top_annotation,
+  column_names_side = "bottom",
+  row_names_side = "left",
   column_names_rot = 45,
-  col = col_rho_2,
-  cell_fun = function(j,i,x,y,w,h,fill){
-    if(hm_fdr_2[i,j] < 0.05){
-      grid.text("**",x,y,gp=gpar(fontsize=6))
-    } else if(hm_pval_2[i,j] < 0.05){
-      grid.text("*",x,y,gp=gpar(fontsize=6))
+  height = nrow(cytokine_rho) *
+    unit(
+      2.8,
+      "mm"
+    ),
+  width = ncol(cytokine_rho) *
+    unit(
+      2.8,
+      "mm"
+    ),
+  column_names_gp = gpar(
+    fontsize = 5.5
+  ),
+  row_names_gp = gpar(
+    fontsize = 5.5
+  ),
+  col = cytokine_color,
+  cell_fun = function(
+      j,
+      i,
+      x,
+      y,
+      width,
+      height,
+      fill
+  ) {
+
+    if (cytokine_fdr[i, j] < 0.05) {
+
+      grid.text(
+        "**",
+        x,
+        y,
+        gp = gpar(
+          fontsize = 6
+        )
+      )
+
+    } else if (cytokine_p[i, j] < 0.05) {
+
+      grid.text(
+        "*",
+        x,
+        y,
+        gp = gpar(
+          fontsize = 6
+        )
+      )
     }
   }
 )
 
+# ============================================================
+# Output
+# ============================================================
 
-pdf("fig3d.pdf", family="Helvetica", width=8, height=6)
-draw(hm2 + hm3,
-     padding = unit(c(80,50,2,2),"mm"),
-     merge_legend = TRUE)
+pdf(
+  OUTPUT_FILE,
+  family = "Helvetica",
+  width = 8,
+  height = 6
+)
+
+draw(
+  scfa_heatmap + cytokine_heatmap,
+  padding = unit(
+    c(
+      80,
+      50,
+      2,
+      2
+    ),
+    "mm"
+  ),
+  merge_legend = TRUE
+)
+
 dev.off()
+
+message(
+  "Saved: ",
+  OUTPUT_FILE
+)
