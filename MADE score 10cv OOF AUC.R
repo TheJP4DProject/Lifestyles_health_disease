@@ -1,5 +1,5 @@
 # This script evaluates a species-only microbiome model using stratified
-# 5-fold outer cross-validation and inner cross-validation for LASSO tuning.
+# 10-fold outer cross-validation and inner cross-validation for LASSO tuning.
 # The prevalence filter is defined once on the full dataset and reused across
 # all outer folds.
 
@@ -14,7 +14,7 @@ suppressPackageStartupMessages({
 })
 
 SEED <- 123
-OUTER_FOLDS <- 5
+OUTER_FOLDS <- 10
 INNER_FOLDS <- 10
 N_CORES <- 10
 MIN_PREVALENCE <- 0.025
@@ -271,7 +271,7 @@ write.csv(
   results,
   file.path(
     OUTPUT_DIR,
-    "species_only_5fold_oof_auc.csv"
+    "species_only_10fold_oof_auc.csv"
   ),
   row.names = FALSE
 )
@@ -280,7 +280,7 @@ write.xlsx(
   results,
   file.path(
     OUTPUT_DIR,
-    "species_only_5fold_oof_auc.xlsx"
+    "species_only_10fold_oof_auc.xlsx"
   ),
   overwrite = TRUE
 )
