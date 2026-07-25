@@ -1,149 +1,207 @@
-# This script calculates Bray-Curtis distance matrices for MO, mOTU, and KO
-# profiles, then tests their associations with metadata variables using adonis2.
-# Models are adjusted for ten predefined covariates and log10 sequencing depth.
+# This script tests associations of mOTU- and KO-based Bray-Curtis
+# beta-diversity with lifestyle and disease variables using PERMANOVA.
+#
+# Each model is adjusted for predefined covariates and log10-transformed
+# sequencing depth.
 
 library(vegan)
 library(openxlsx)
-library(parallelDist)
 library(doParallel)
 library(foreach)
 
-registerDoParallel(cores = 10)
+# =============================================================================
+# Parallel settings
+# =============================================================================
+
+N_CORES <- 10
+
+registerDoParallel(
+  cores = N_CORES
+)
+
+# =============================================================================
+# File paths
+# =============================================================================
 
 METADATA_FILE <- "data/metadata.xlsx"
 DEPTH_FILE <- "data/sequencing_depth.tsv"
 
-MO_FILE <- "data/mo_abundance.tsv"
-MOTU_FILE <- "data/motu_abundance.xlsx"
-KO_FILE <- "data/ko_abundance.xlsx"
+MOTU_DISTANCE_FILE <- "data/bray_curtis_motu.rds"
+KO_DISTANCE_FILE <- "data/bray_curtis_ko.rds"
 
 OUTPUT_DIR <- "results/beta_diversity"
-dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-metadata <- read.xlsx(METADATA_FILE, check.names = FALSE)
-metadata <- metadata[, -c(2, 3)]
+dir.create(
+  OUTPUT_DIR,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# =============================================================================
+# Metadata
+# =============================================================================
+
+metadata <- read.xlsx(
+  METADATA_FILE,
+  check.names = FALSE
+)
+
+metadata <- metadata[
+  ,
+  -c(2, 3),
+  drop = FALSE
+]
+
 rownames(metadata) <- metadata[[1]]
 
-fixkey <- colnames(metadata)[2:11]
-test_cols <- colnames(metadata)[12:72]
+# Predefined adjustment variables
+adjustment_cols <- colnames(metadata)[
+  2:11
+]
+
+# Lifestyle and disease variables
+test_cols <- colnames(metadata)[
+  12:72
+]
+
+# =============================================================================
+# Sequencing depth
+# =============================================================================
 
 depth <- read.table(
   DEPTH_FILE,
   sep = "\t",
   header = FALSE,
-  stringsAsFactors = FALSE
-)[, c(1, 6)]
-
-colnames(depth) <- c("SampleID", "Depth")
-
-metadata$Depth_log10 <- log10(
-  depth$Depth[match(rownames(metadata), depth$SampleID)]
-)
-
-calculate_bc <- function(data, prevalence = 0.025) {
-  common <- intersect(rownames(data), rownames(metadata))
-  data <- data[common, , drop = FALSE]
-  data <- data[, colMeans(data > 0) > prevalence, drop = FALSE]
-
-  bc <- as.matrix(
-    parDist(
-      as.matrix(data),
-      method = "bray",
-      threads = 10
-    )
-  )
-
-  rownames(bc) <- colnames(bc) <- rownames(data)
-  bc
-}
-
-mo <- read.table(
-  MO_FILE,
-  sep = "\t",
-  header = TRUE,
-  row.names = 1,
+  stringsAsFactors = FALSE,
   check.names = FALSE
 )
 
-colnames(mo) <- c(colnames(mo)[-1], "remove")
-mo <- t(mo[, -ncol(mo)])
-
-motu <- read.xlsx(
-  MOTU_FILE,
-  rowNames = TRUE,
-  check.names = FALSE
-)
-
-motu <- motu[
+# Column 1 contains sample IDs and column 6 contains sequencing depth
+depth <- depth[
   ,
-  colnames(motu) != "Unassigned species",
+  c(1, 6),
   drop = FALSE
 ]
 
-ko <- read.xlsx(
-  KO_FILE,
-  rowNames = TRUE,
-  check.names = FALSE
+colnames(depth) <- c(
+  "SampleID",
+  "Depth"
 )
 
-ko <- t(ko)
+depth$Depth <- as.numeric(
+  depth$Depth
+)
+
+# Sequencing depth was log10-transformed before inclusion in the model
+depth$Depth_log10 <- ifelse(
+  depth$Depth > 0,
+  log10(depth$Depth),
+  NA_real_
+)
+
+metadata$Depth_log10 <- depth$Depth_log10[
+  match(
+    rownames(metadata),
+    depth$SampleID
+  )
+]
+
+# =============================================================================
+# Bray-Curtis distance matrices
+# =============================================================================
 
 bc_matrices <- list(
-  MO = calculate_bc(mo),
-  motu = calculate_bc(motu),
-  KO = calculate_bc(ko)
+  mOTU = as.matrix(
+    readRDS(MOTU_DISTANCE_FILE)
+  ),
+  KO = as.matrix(
+    readRDS(KO_DISTANCE_FILE)
+  )
 )
 
-saveRDS(
-  bc_matrices$MO,
-  file.path(OUTPUT_DIR, "bc_MO.rds")
-)
-
-saveRDS(
-  bc_matrices$motu,
-  file.path(OUTPUT_DIR, "bc_motu.rds")
-)
-
-saveRDS(
-  bc_matrices$KO,
-  file.path(OUTPUT_DIR, "bc_KO.rds")
-)
+# =============================================================================
+# Analysis tasks
+# =============================================================================
 
 tasks <- expand.grid(
-  data_type = names(bc_matrices),
-  metadata_var = test_cols,
+  DataType = names(bc_matrices),
+  Variable = test_cols,
   stringsAsFactors = FALSE
 )
+
+# =============================================================================
+# PERMANOVA
+# =============================================================================
 
 results <- foreach(
   i = seq_len(nrow(tasks)),
   .combine = rbind,
   .packages = "vegan"
 ) %dopar% {
-  type <- tasks$data_type[i]
-  var <- tasks$metadata_var[i]
-  bc <- bc_matrices[[type]]
 
-  samples <- intersect(rownames(metadata), rownames(bc))
+  data_type <- tasks$DataType[i]
+  variable <- tasks$Variable[i]
 
-  meta <- metadata[
-    samples,
-    c(var, fixkey, "Depth_log10"),
+  distance_matrix <- bc_matrices[[data_type]]
+
+  model_variables <- c(
+    variable,
+    adjustment_cols,
+    "Depth_log10"
+  )
+
+  common_samples <- Reduce(
+    intersect,
+    list(
+      rownames(metadata),
+      rownames(distance_matrix),
+      colnames(distance_matrix)
+    )
+  )
+
+  analysis_metadata <- metadata[
+    common_samples,
+    model_variables,
     drop = FALSE
   ]
 
-  meta <- meta[complete.cases(meta), , drop = FALSE]
-  bc <- bc[rownames(meta), rownames(meta), drop = FALSE]
+  # Samples with missing values in any model variable were excluded
+  analysis_metadata <- analysis_metadata[
+    complete.cases(analysis_metadata),
+    ,
+    drop = FALSE
+  ]
 
-  meta[] <- lapply(
-    meta,
-    function(x) if (is.character(x)) factor(x) else x
+  analysis_distance <- distance_matrix[
+    rownames(analysis_metadata),
+    rownames(analysis_metadata),
+    drop = FALSE
+  ]
+
+  # Non-numeric variables were treated as categorical variables
+  analysis_metadata[] <- lapply(
+    analysis_metadata,
+    function(x) {
+      if (is.numeric(x)) {
+        x
+      } else {
+        factor(x)
+      }
+    }
+  )
+
+  # Sequencing depth was retained as a continuous variable
+  analysis_metadata$Depth_log10 <- as.numeric(
+    analysis_metadata$Depth_log10
   )
 
   formula_text <- paste(
-    "as.dist(bc) ~",
+    "as.dist(analysis_distance) ~",
     paste(
-      sprintf("`%s`", c(var, fixkey, "Depth_log10")),
+      sprintf(
+        "`%s`",
+        model_variables
+      ),
       collapse = " + "
     )
   )
@@ -151,45 +209,71 @@ results <- foreach(
   set.seed(123)
 
   fit <- adonis2(
-    as.formula(formula_text),
-    data = meta,
+    formula = as.formula(formula_text),
+    data = analysis_metadata,
     permutations = 999,
-    by = "term"
+    by = "term",
+    parallel = 1
   )
 
-  result <- as.data.frame(fit)
-  result$term <- rownames(result)
-  result$data_type <- type
-  result$metadata_var <- var
-  result$n_samples <- nrow(meta)
+  fit <- as.data.frame(
+    fit,
+    check.names = FALSE
+  )
 
-  result <- result[
-    gsub("`", "", result$term) == var,
+  fit$Term <- rownames(fit)
+
+  # Retain the PERMANOVA result for the target metadata variable
+  target_result <- fit[
+    gsub(
+      "`",
+      "",
+      fit$Term,
+      fixed = TRUE
+    ) == variable,
     ,
     drop = FALSE
   ]
 
-  result[, c(
-    "data_type",
-    "metadata_var",
-    "term",
-    "n_samples",
-    setdiff(
-      colnames(result),
-      c("data_type", "metadata_var", "term", "n_samples")
-    )
-  )]
+  data.frame(
+    DataType = data_type,
+    Variable = variable,
+    Adjustment = "Predefined covariates + log10 sequencing depth",
+    N = nrow(analysis_metadata),
+    Df = target_result$Df,
+    SumOfSqs = target_result$SumOfSqs,
+    R2 = target_result$R2,
+    F = target_result$F,
+    P = target_result[["Pr(>F)"]],
+    check.names = FALSE
+  )
 }
 
+# =============================================================================
+# Multiple-testing correction
+# =============================================================================
+
 results$FDR <- ave(
-  results[["Pr(>F)"]],
-  results$data_type,
-  FUN = function(p) p.adjust(p, method = "BH")
+  results$P,
+  results$DataType,
+  FUN = function(p) {
+    p.adjust(
+      p,
+      method = "BH"
+    )
+  }
 )
+
+# =============================================================================
+# Output
+# =============================================================================
 
 write.csv(
   results,
-  file.path(OUTPUT_DIR, "adonis2_results.csv"),
+  file.path(
+    OUTPUT_DIR,
+    "permanova_depth_adjusted_results.csv"
+  ),
   row.names = FALSE
 )
 
