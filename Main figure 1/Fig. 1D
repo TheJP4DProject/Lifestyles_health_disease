@@ -79,7 +79,7 @@ variable_info <- data.frame(
     rep("Fermented diets", 4),
     rep("Dairy products", 2),
     rep("Animal-based diets", 5),
-    rep("Starch/Sugar-rich diets", 4),
+    rep("Refined carbohydrates", 4),
     rep("Alcohol/Smoking", 2),
     rep("Exercise", 4),
     "Health",
