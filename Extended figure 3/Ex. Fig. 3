@@ -32,8 +32,8 @@ sep.names = " ")
 colnames(maa_raw)[2]="feature"
 colnames(maa_raw)[3]="metadata"
 
-life_meta <- c("Vegetables","Fruits","Mushrooms","Coffee","Green tea","Vinegar",
-"Tofu","Natto","Miso","Pickles","Kimchi","Yogurt","Milk",
+life_meta <- c("Vegetables","Fruits","Mushrooms","Vinegar",
+"Tofu","Coffee","Green tea","Natto","Miso","Pickles","Kimchi","Yogurt","Milk",
 "Meat","Processed meat","Seafood","Eggs","Dressing","Rice",
 "Bread","Noodles","Soft drinks","Alcohol","Smoking",
 "Weak physical activity","Moderate physical activity","Strong physical activity","Sitting down ≥ 9.5h")
@@ -144,8 +144,8 @@ c(rep("Lifestyle",length(life_meta)), rep("Health/Disease",length(dis_meta))),
 levels=c("Lifestyle","Health/Disease"))
 
 ordered_df <- data.frame(
-group = c("Vegetables","Fruits","Mushrooms","Coffee","Green tea","Vinegar",
-"Tofu","Natto","Miso","Pickles","Kimchi","Yogurt","Milk",
+group = c("Vegetables","Fruits","Mushrooms","Vinegar",
+"Tofu","Coffee","Green tea","Natto","Miso","Pickles","Kimchi","Yogurt","Milk",
 "Meat","Processed meat","Seafood","Eggs","Dressing","Rice",
 "Bread","Noodles","Soft drinks","Alcohol","Smoking",
 "Weak physical activity","Moderate physical activity","Strong physical activity","Sitting down ≥ 9.5h",
@@ -153,9 +153,8 @@ group = c("Vegetables","Fruits","Mushrooms","Coffee","Green tea","Vinegar",
 "T2D","Dyslipidemia","Hypertension","Hyperuricemia",
 "IHD","Heart failure","Stroke",
 "Depression","Rheumatoid arthritis","Collagen disease","Asthma","COPD"),
-annotation = c(rep("Plant-based diets",3), rep("Polyphenol-rich beverages",2),
-rep("-",2), rep("Fermented diets",4), rep("Dairy product",2),
-rep("Animal-based diets",5), rep("Starch/Sugar-rich diets",4),
+annotation = c(rep("Plant-based diets",5), rep("Polyphenol-rich beverages",2), rep("Fermented diets",4), rep("Dairy product",2),
+rep("Animal-based diets",5), rep("Refined carbohydrates",4),
 rep("Alcohol/Smoking",2), rep("Exercise",4),
 "Health", rep("Disease",15)),
 color = c(rep("#66c2a5",3), rep("#b3b3b3",2),
@@ -171,11 +170,10 @@ anno_meta <- ordered_df[all_meta, "annotation"]
 col_M <- c(
 "Plant-based diets" = "#66c2a5",
 "Polyphenol-rich beverages" = "#b3b3b3",
-"-" = "white",
 "Fermented diets" = "#fc8d62",
 "Dairy product" = "#8da0cb",
 "Animal-based diets" = "#e78ac3",
-"Starch/Sugar-rich diets" = "#a6d854",
+"Refined carbohydrates" = "#a6d854",
 "Alcohol/Smoking" = "#ffd92f",
 "Exercise" = "#e5c494",
 "Health" = "white",
