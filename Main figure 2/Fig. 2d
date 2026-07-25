@@ -1,156 +1,358 @@
+# ============================================================
+# R2 versus causal mediation count
+#
+# All analyses use the original R2 values and causal mediation
+# counts without out-of-range transformation.
+# ============================================================
 
 library(dplyr)
 library(ggplot2)
-library(ggrepel)
 
-causal_f <- read.csv("data/causal_input.csv")
-causal_f = causal_f[(causal_f$Avg_causal_mediation_qval<0.05)&(causal_f$Inv_Avg_causal_mediation_pval>=0.05),]
+# ============================================================
+# File paths
+# ============================================================
+
+CAUSAL_FILE <- "data/causal_input.csv"
+BETA_R2_FILE <- "data/beta_r2.csv"
+
+OUTPUT_DIR <- "results/figures"
+
+dir.create(
+  OUTPUT_DIR,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# ============================================================
+# Disease categories
+# ============================================================
 
 category_map <- data.frame(
-  Disease  = c("General health",
-               "IBD", "IBS", "Liver cirrhosis",
-               "T2D", "Dyslipidemia", "Hypertension", "Hyperuricemia",
-               "IHD", "Heart failure", "Stroke",
-               "Depression",
-               "Rheumatoid arthritis", "Collagen disease",
-               "Asthma", "COPD"),
-  Category = c("General health",
-               "Digestive", "Digestive", "Digestive",
-               "Metabolic", "Metabolic", "Metabolic", "Metabolic",
-               "Cardiovascular", "Cardiovascular", "Cardiovascular",
-               "Psychiatric",
-               "Immune", "Immune",
-               "Respiratory", "Respiratory"),
+  Disease = c(
+    "General health",
+    "IBD",
+    "IBS",
+    "Liver cirrhosis",
+    "T2D",
+    "Dyslipidemia",
+    "Hypertension",
+    "Hyperuricemia",
+    "IHD",
+    "Heart failure",
+    "Stroke",
+    "Depression",
+    "Rheumatoid arthritis",
+    "Collagen disease",
+    "Asthma",
+    "COPD"
+  ),
+  Category = c(
+    "General health",
+    "Digestive",
+    "Digestive",
+    "Digestive",
+    "Metabolic",
+    "Metabolic",
+    "Metabolic",
+    "Metabolic",
+    "Cardiovascular",
+    "Cardiovascular",
+    "Cardiovascular",
+    "Psychiatric",
+    "Immune",
+    "Immune",
+    "Respiratory",
+    "Respiratory"
+  ),
   stringsAsFactors = FALSE
 )
 
-category_order <- c("General health", "Digestive", "Metabolic",
-                    "Cardiovascular", "Psychiatric", "Immune", "Respiratory")
+category_order <- c(
+  "General health",
+  "Digestive",
+  "Metabolic",
+  "Cardiovascular",
+  "Psychiatric",
+  "Immune",
+  "Respiratory"
+)
 
 category_colors <- c(
-  "General health"          = "#fb9a99",
-  "Digestive"               = "#CCBE93",
-  "Metabolic"               = "#a6cee3",
-  "Cardiovascular"          = "#1f78b4",
-  "Psychiatric"             = "#b2df8a",
-  "Immune"                  = "#18BC9C",
-  "Respiratory"             = "#fdbf6f"
+  "General health" = "#fb9a99",
+  "Digestive" = "#CCBE93",
+  "Metabolic" = "#a6cee3",
+  "Cardiovascular" = "#1f78b4",
+  "Psychiatric" = "#b2df8a",
+  "Immune" = "#18BC9C",
+  "Respiratory" = "#fdbf6f"
 )
 
-name_map <- c(
-  "Vegetables" = "Vegetables",
-  "Fruit" = "Fruits",
-  "Mushroom" = "Mushrooms",
-  "Coffee" = "Coffee",
-  "Green.tea" = "Green tea",
-  "Vinegar" = "Vinegar",
-  "Tofu" = "Tofu",
-  "Natto" = "Natto",
-  "Miso" = "Miso",
-  "Pickles" = "Pickles",
-  "Kimuchi" = "Kimchi",
-  "Yogurt" = "Yogurt",
-  "Milk" = "Milk",
-  "Meat" = "Meat",
-  "Processed.meat" = "Processed meat",
-  "Seafood" = "Seafood",
-  "Egg" = "Eggs",
-  "Dressing" = "Dressing",
-  "Rice" = "Rice",
-  "Bread" = "Bread",
-  "Noodle" = "Noodles",
-  "Soft.drinks" = "Soft drinks",
-  "Alcohol" = "Alcohol",
-  "Current.smoking" = "Smoking",
-  "Strong.active" = "Strong physical activity",
-  "Moderate.active" = "Moderate physical activity",
-  "Weak.active" = "Weak physical activity",
-  "Sitting.down9.5h" = "Sitting down ≥ 9.5h",
-  "General.Health" = "General health",
-  "IBD" = "IBD",
-  "IBS" = "IBS",
-  "Liver.cirrhosis" = "Liver cirrhosis",
-  "T2D" = "T2D",
-  "Dyslipidemia" = "Dyslipidemia",
-  "Hypertension" = "Hypertension",
-  "Hyperuricemia" = "Hyperuricemia",
-  "ACS" = "IHD",
-  "CHF" = "Heart failure",
-  "Stroke" = "Stroke",
-  "Depression" = "Depression",
-  "Rheumatoid.arthritis" = "Rheumatoid arthritis",
-  "Collagen.disease" = "Collagen disease",
-  "Asthma" = "Asthma",
-  "COPD" = "COPD"
+disease_order <- category_map$Disease
+
+# ============================================================
+# Causal mediation count
+# ============================================================
+
+causal_data <- read.csv(
+  CAUSAL_FILE,
+  stringsAsFactors = FALSE,
+  check.names = FALSE
 )
 
-causal_f$Disease <- name_map[causal_f$Disease]
-causal_f$Treat <- name_map[causal_f$Treat]
+count_data <- causal_data %>%
+  filter(
+    Avg_causal_mediation_qval < 0.05,
+    Inv_Avg_causal_mediation_pval >= 0.05
+  ) %>%
+  count(
+    Disease,
+    name = "causal_count"
+  ) %>%
+  left_join(
+    category_map,
+    by = "Disease"
+  )
 
-count_df <- causal_f %>%
-  count(Disease, name = "n") %>%
-  left_join(category_map, by = "Disease") %>%
-  mutate(Category = ifelse(is.na(Category), "Other", Category))
+# ============================================================
+# mOTU beta-diversity R2
+# ============================================================
 
-r2_raw <- read.csv("data/beta_r2.csv")
+r2_data <- read.csv(
+  BETA_R2_FILE,
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+)
 
-r2_motu <- r2_raw %>% filter(type == "MOTU")
+r2_motu <- r2_data %>%
+  filter(
+    type == "MOTU"
+  ) %>%
+  group_by(
+    Disease
+  ) %>%
+  summarise(
+    R2 = mean(
+      R2,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
 
-r2_motu <- r2_motu %>%
-  mutate(Disease = name_map[metadata]) %>%
-  filter(!is.na(Disease)) %>%
-  group_by(Disease) %>%
-  summarise(R2 = mean(R2, na.rm = TRUE), .groups = "drop")
+# ============================================================
+# Merge data
+# ============================================================
 
-plot_df <- count_df %>%
-  left_join(r2_motu, by = "Disease") %>%
-  filter(!is.na(R2))
+plot_data <- count_data %>%
+  left_join(
+    r2_motu,
+    by = "Disease"
+  ) %>%
+  filter(
+    !is.na(R2),
+    is.finite(R2)
+  ) %>%
+  mutate(
+    Category = factor(
+      Category,
+      levels = category_order
+    )
+  )
 
-p <- ggplot(plot_df, aes(x = R2, y = n, color = Category, label = Disease)) +
+# ============================================================
+# Spearman correlation
+# ============================================================
+
+spearman_result <- cor.test(
+  plot_data$R2,
+  plot_data$causal_count,
+  method = "spearman",
+  exact = FALSE
+)
+
+correlation_label <- paste0(
+  "rho = ",
+  round(
+    unname(spearman_result$estimate),
+    3
+  ),
+  "\np = ",
+  signif(
+    spearman_result$p.value,
+    2
+  )
+)
+
+# ============================================================
+# Plot
+# ============================================================
+
+p <- ggplot(
+  plot_data,
+  aes(
+    x = R2,
+    y = causal_count
+  )
+) +
   geom_smooth(
-    method   = "lm",
-    color    = "grey40",
-    fill     = "grey85",
+    method = "lm",
+    color = "grey40",
+    fill = "grey85",
     linewidth = 0.5,
-    se       = TRUE,
-    inherit.aes = FALSE,
-    aes(x = R2, y = n)
+    se = TRUE
   ) +
-  geom_point(size = 1, alpha = 0.85) +
-  scale_color_manual(values = category_colors) +
+  geom_point(
+    aes(
+      color = Category
+    ),
+    shape = 16,
+    size = 1.6,
+    alpha = 0.9
+  ) +
+  scale_color_manual(
+    values = category_colors,
+    limits = category_order,
+    drop = FALSE
+  ) +
+  scale_x_continuous(
+    breaks = seq(
+      0,
+      0.00150,
+      by = 0.00025
+    ),
+    labels = c(
+      "0",
+      "0.00025",
+      "0.00050",
+      "0.00075",
+      "0.00100",
+      "0.00125",
+      "0.00150"
+    ),
+    limits = c(
+      0,
+      0.00150
+    ),
+    expand = expansion(
+      mult = c(0, 0)
+    )
+  ) +
+  scale_y_continuous(
+    expand = expansion(
+      mult = c(0.02, 0.05)
+    )
+  ) +
   labs(
-    x     = expression(R^2 ~ "(MOTU beta-diversity)"),
-    y     = "Causal mediation count",
+    x = expression(
+      R^2 ~ "(mOTU beta-diversity)"
+    ),
+    y = "Causal mediation count",
     color = "Category"
   ) +
   annotate(
     "text",
-    x     = max(plot_df$R2, na.rm = TRUE),
-    y     = max(plot_df$n,  na.rm = TRUE),
-    label = {
-      sp <- cor.test(plot_df$R2, plot_df$n, method = "spearman", exact = FALSE)
-      paste0("rho = ", round(sp$estimate, 3),
-             "\np = ", signif(sp$p.value, 2))
-    },
-    hjust  = 1, vjust = 1,
-    size   = 2.5,
-    color  = "black"
+    x = -Inf,
+    y = Inf,
+    label = correlation_label,
+    hjust = -0.05,
+    vjust = 1.05,
+    size = 2.5,
+    color = "black"
   ) +
-  theme_classic(base_size = 5) +
+  theme_classic(
+    base_size = 5
+  ) +
   theme(
-    panel.border    = element_rect(color = "grey70", fill = NA, linewidth = 0.5),
-    legend.title    = element_text(size = 5),
-    legend.text     = element_text(size = 5),
-    legend.key.size = unit(4, "pt"),
-    axis.text       = element_text(size = 5)
+    panel.border = element_rect(
+      color = "grey70",
+      fill = NA,
+      linewidth = 0.5
+    ),
+    axis.text = element_text(
+      size = 5,
+      color = "black"
+    ),
+    axis.title = element_text(
+      size = 5,
+      color = "black"
+    ),
+    legend.title = element_text(
+      size = 5
+    ),
+    legend.text = element_text(
+      size = 5
+    ),
+    legend.key.size = grid::unit(
+      4,
+      "pt"
+    ),
+    legend.spacing.y = grid::unit(
+      0,
+      "pt"
+    ),
+    plot.margin = margin(
+      t = 3,
+      r = 3,
+      b = 3,
+      l = 3,
+      unit = "pt"
+    )
+  ) +
+  guides(
+    color = guide_legend(
+      override.aes = list(
+        shape = 16,
+        size = 2.4,
+        alpha = 1
+      )
+    )
   )
 
-ggsave("output.pdf", p, width = 2.25, height = 1.5, useDingbats = FALSE)
+# ============================================================
+# Save figure
+# ============================================================
 
-out_df <- plot_df %>%
-  select(Disease, Category, causal_count = n, R2) %>%
-  filter(Disease %in% disease_order) %>%
-  mutate(Disease = factor(Disease, levels = disease_order)) %>%
-  arrange(Disease)
+ggsave(
+  filename = file.path(
+    OUTPUT_DIR,
+    "r2_vs_causal_mediation_count.pdf"
+  ),
+  plot = p,
+  width = 2.25,
+  height = 1.5,
+  units = "in",
+  useDingbats = FALSE
+)
 
-write.csv(out_df, "output.csv", row.names = FALSE)
+# ============================================================
+# Save plotting data
+# ============================================================
+
+output_data <- plot_data %>%
+  select(
+    Disease,
+    Category,
+    causal_count,
+    R2
+  ) %>%
+  mutate(
+    Disease = factor(
+      Disease,
+      levels = disease_order
+    )
+  ) %>%
+  arrange(
+    Disease
+  ) %>%
+  mutate(
+    Disease = as.character(Disease),
+    Category = as.character(Category)
+  )
+
+write.csv(
+  output_data,
+  file.path(
+    OUTPUT_DIR,
+    "r2_vs_causal_mediation_count.csv"
+  ),
+  row.names = FALSE
+)
