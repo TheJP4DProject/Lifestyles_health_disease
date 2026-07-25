@@ -8,179 +8,890 @@ library(ggplot2)
 library(dplyr)
 library(gridExtra)
 library(grid)
-library(scales)
 
-meta <- read.xlsx("metadata_species_profile.v2.xlsx", sheet = 1)
-dislist <- read.xlsx("metadata_species_profile.v2.xlsx", sheet = 3)
+# ============================================================
+# File paths
+# ============================================================
 
-motu <- readRDS("motu.rds")
+METADATA_FILE <- "data/validation_metadata.xlsx"
+MOTU_FILE <- "data/validation_motu.rds"
+REFERENCE_METADATA_FILE <- "data/reference_metadata.csv"
+MODEL_DIR <- "results/models"
 
-rownames(motu) <- meta$sample_alias
-meta <- meta[meta$study %in% dislist$study, ]
-motu <- motu[meta$sample_alias, ]
+OUTPUT_PDF <- "results/figures/external_validation_violin.pdf"
+OUTPUT_CSV <- "results/figures/external_validation_statistics.csv"
 
-tempmeta <- meta
-metadata_ref <- read.csv("meta.atc.csv")
-outcome_order <- colnames(metadata_ref)[34:50]
-
-clr_transform <- function(M) {
-M[M == 0] <- min(M[M > 0]) / 2
-logM <- log(M)
-sweep(logM, 1, rowMeans(logM), "-")
-}
-
-standardize_cols <- function(M) {
-scaled <- scale(M)
-colnames(scaled) <- colnames(M)
-rownames(scaled) <- rownames(M)
-scaled
-}
-
-extract_id <- function(names) {
-gsub(".\[ID:([0-9]{5})\].", "\1", names)
-}
-
-predict_logodds_1se <- function(rds_file, tempworld) {
-model <- readRDS(rds_file)
-if (is.null(model$status) || model$status != "success") return(NULL)
-
-all_features <- rownames(model$cvfit$glmnet.fit$beta)
-feature_ids <- extract_id(all_features)
-
-X <- matrix(0, nrow(tempworld), length(all_features))
-colnames(X) <- all_features
-rownames(X) <- rownames(tempworld)
-
-for (i in seq_along(feature_ids)) {
-if (feature_ids[i] %in% colnames(tempworld)) {
-X[, i] <- tempworld[, feature_ids[i]]
-}
-}
-
-as.numeric(predict(model$cvfit, newx = X, s = model$lambda_1se, type = "link"))
-}
-
-all_data <- list()
-p_values <- list()
-stats_data <- list()
-
-for (st in unique(tempmeta$study)) {
-
-tempr <- tempmeta[tempmeta$study == st, ]
-disease_key <- setdiff(unique(tempr$disease), "CTR")
-if (length(disease_key) == 0) next
-
-disease_name <- dislist[tolower(dislist$disease) == tolower(disease_key[1]), "name"][1]
-
-tempworld <- motu[tempr$sample_alias, ]
-tempworld <- tempworld[, colSums(tempworld) > 0]
-colnames(tempworld) <- sub(".v3_([0-9]{5})\].", "\1", colnames(tempworld))
-tempworld <- standardize_cols(clr_transform(tempworld)[, -1])
-
-rds_file <- paste0("model_results_1se_logodds/rds_files/", gsub(" ", ".", disease_name), "_sp.rds")
-if (!file.exists(rds_file)) next
-
-tempr$log_odds <- predict_logodds_1se(rds_file, tempworld)
-tempr$group <- ifelse(tempr$HealthCTR != 0, "Control", "Disease")
-tempr$study_disease <- paste0(st, "\n", disease_name)
-tempr$disease_name <- disease_name
-
-p_val <- tryCatch(
-wilcox.test(
-tempr$log_odds[tempr$group == "Control"],
-tempr$log_odds[tempr$group == "Disease"]
-)$p.value,
-error = function(e) NA
+dir.create(
+  dirname(OUTPUT_PDF),
+  recursive = TRUE,
+  showWarnings = FALSE
 )
 
-control_logodds <- tempr$log_odds[tempr$group == "Control"]
-disease_logodds <- tempr$log_odds[tempr$group == "Disease"]
+# ============================================================
+# Read validation metadata and abundance data
+# ============================================================
 
-n_control <- length(control_logodds)
-n_disease <- length(disease_logodds)
-n_total <- n_control + n_disease
-
-median_control <- median(control_logodds, na.rm = TRUE)
-median_disease <- median(disease_logodds, na.rm = TRUE)
-
-log2fc <- if (median_control != 0) log2(median_disease / median_control) else NA
-
-se_control <- sd(control_logodds, na.rm = TRUE) / sqrt(n_control)
-se_disease <- sd(disease_logodds, na.rm = TRUE) / sqrt(n_disease)
-
-all_data[[st]] <- tempr
-
-p_values[[st]] <- data.frame(
-study_disease = tempr$study_disease[1],
-disease_name = disease_name,
-study = st,
-p_value = p_val
+metadata <- read.xlsx(
+  METADATA_FILE,
+  sheet = 1
 )
 
-stats_data[[st]] <- data.frame(
-study = st,
-disease_name = disease_name,
-median_control = median_control,
-median_disease = median_disease,
-mean_control = mean(control_logodds, na.rm = TRUE),
-mean_disease = mean(disease_logodds, na.rm = TRUE),
-sd_control = sd(control_logodds, na.rm = TRUE),
-sd_disease = sd(disease_logodds, na.rm = TRUE),
-se_control = se_control,
-se_disease = se_disease,
-log2fc = log2fc,
-pval = p_val,
-n_control = n_control,
-n_disease = n_disease,
-n_total = n_total,
-stringsAsFactors = FALSE
+disease_list <- read.xlsx(
+  METADATA_FILE,
+  sheet = 3
 )
+
+disease_list <- disease_list %>%
+  filter(
+    name != "CKD"
+  )
+
+motu <- readRDS(
+  MOTU_FILE
+)
+
+rownames(motu) <- metadata$sample_alias
+
+metadata <- metadata %>%
+  filter(
+    study %in% disease_list$study
+  )
+
+motu <- motu[
+  metadata$sample_alias,
+  ,
+  drop = FALSE
+]
+
+metadata <- metadata[
+  !grepl(
+    "Excluded",
+    metadata$DiseaseCaseCTR,
+    fixed = TRUE
+  ),
+  ,
+  drop = FALSE
+]
+
+reference_metadata <- read.csv(
+  REFERENCE_METADATA_FILE,
+  check.names = FALSE
+)
+
+outcome_order <- colnames(reference_metadata)[
+  34:50
+]
+
+outcome_order <- outcome_order[
+  outcome_order != "CKD"
+]
+
+# ============================================================
+# CLR transformation and standardization
+# ============================================================
+
+clr_transform <- function(x) {
+
+  x[x == 0] <- min(
+    x[x > 0]
+  ) / 2
+
+  log_x <- log(x)
+
+  sweep(
+    log_x,
+    1,
+    rowMeans(log_x),
+    "-"
+  )
 }
 
-tempr <- tempmeta
+standardize_columns <- function(x) {
 
-tempworld <- motu[tempr$sample_alias, ]
-tempworld <- tempworld[, colSums(tempworld) > 0]
-colnames(tempworld <- sub(".v3_([0-9]{5})\].", "\1", colnames(tempworld)))
-tempworld <- standardize_cols(clr_transform(tempworld))
+  scaled_x <- scale(x)
 
-rds_file <- "model_results_1se_logodds/rds_files/General.Health_sp.rds"
+  colnames(scaled_x) <- colnames(x)
+  rownames(scaled_x) <- rownames(x)
 
-tempr$log_odds <- predict_logodds_1se(rds_file, tempworld)
-tempr$group <- ifelse(tempr$HealthCTR != 0, "Control", "Disease")
-tempr$study_disease <- "worldHealth\nGeneral.Health"
-tempr$disease_name <- "General.Health"
+  scaled_x
+}
 
-wilcox_wh <- wilcox.test(
-tempr$log_odds[tempr$group == "Control"],
-tempr$log_odds[tempr$group == "Disease"]
+extract_feature_id <- function(x) {
+
+  gsub(
+    ".*\\[ID:([0-9]{5})\\].*",
+    "\\1",
+    x
+  )
+}
+
+# ============================================================
+# Predict log-odds scores
+# ============================================================
+
+predict_logodds <- function(
+    model_file,
+    abundance
+) {
+
+  model <- readRDS(
+    model_file
+  )
+
+  model_features <- rownames(
+    model$cvfit$glmnet.fit$beta
+  )
+
+  feature_ids <- extract_feature_id(
+    model_features
+  )
+
+  design_matrix <- matrix(
+    0,
+    nrow = nrow(abundance),
+    ncol = length(model_features),
+    dimnames = list(
+      rownames(abundance),
+      model_features
+    )
+  )
+
+  for (i in seq_along(feature_ids)) {
+
+    if (feature_ids[i] %in% colnames(abundance)) {
+
+      design_matrix[, i] <- abundance[
+        ,
+        feature_ids[i]
+      ]
+    }
+  }
+
+  as.numeric(
+    predict(
+      model$cvfit,
+      newx = design_matrix,
+      s = model$lambda_1se,
+      type = "link"
+    )
+  )
+}
+
+# ============================================================
+# Collect validation results
+# ============================================================
+
+all_plot_data <- list()
+p_value_data <- list()
+summary_data <- list()
+
+for (study_name in unique(metadata$study)) {
+
+  study_metadata <- metadata %>%
+    filter(
+      study == study_name
+    )
+
+  disease_key <- setdiff(
+    unique(study_metadata$disease),
+    "CTR"
+  )
+
+  if (length(disease_key) == 0) {
+    next
+  }
+
+  disease_name <- disease_list %>%
+    filter(
+      tolower(disease) ==
+        tolower(disease_key[1])
+    ) %>%
+    pull(name)
+
+  disease_name <- disease_name[1]
+
+  abundance <- motu[
+    study_metadata$sample_alias,
+    ,
+    drop = FALSE
+  ]
+
+  abundance <- abundance[
+    ,
+    colSums(abundance) > 0,
+    drop = FALSE
+  ]
+
+  colnames(abundance) <- sub(
+    ".*v3_([0-9]{5})\\].*",
+    "\\1",
+    colnames(abundance)
+  )
+
+  abundance <- clr_transform(
+    abundance
+  )
+
+  abundance <- standardize_columns(
+    abundance[, -1, drop = FALSE]
+  )
+
+  model_file <- file.path(
+    MODEL_DIR,
+    paste0(
+      gsub(
+        " ",
+        ".",
+        disease_name
+      ),
+      "_sp.rds"
+    )
+  )
+
+  study_metadata$log_odds <- predict_logodds(
+    model_file,
+    abundance
+  )
+
+  study_metadata$group <- ifelse(
+    study_metadata$HealthCTR != 0,
+    "Control",
+    "Disease"
+  )
+
+  study_metadata$study_disease <- paste0(
+    study_name,
+    "\n",
+    disease_name
+  )
+
+  study_metadata$disease_name <- disease_name
+
+  control_scores <- study_metadata$log_odds[
+    study_metadata$group == "Control"
+  ]
+
+  disease_scores <- study_metadata$log_odds[
+    study_metadata$group == "Disease"
+  ]
+
+  p_value <- wilcox.test(
+    control_scores,
+    disease_scores
+  )$p.value
+
+  all_plot_data[[study_name]] <- study_metadata
+
+  p_value_data[[study_name]] <- data.frame(
+    study_disease = study_metadata$study_disease[1],
+    disease_name = disease_name,
+    study = study_name,
+    p_value = p_value,
+    stringsAsFactors = FALSE
+  )
+
+  summary_data[[study_name]] <- data.frame(
+    study = study_name,
+    disease_name = disease_name,
+    median_control = median(
+      control_scores,
+      na.rm = TRUE
+    ),
+    median_disease = median(
+      disease_scores,
+      na.rm = TRUE
+    ),
+    mean_control = mean(
+      control_scores,
+      na.rm = TRUE
+    ),
+    mean_disease = mean(
+      disease_scores,
+      na.rm = TRUE
+    ),
+    sd_control = sd(
+      control_scores,
+      na.rm = TRUE
+    ),
+    sd_disease = sd(
+      disease_scores,
+      na.rm = TRUE
+    ),
+    se_control = sd(
+      control_scores,
+      na.rm = TRUE
+    ) / sqrt(length(control_scores)),
+    se_disease = sd(
+      disease_scores,
+      na.rm = TRUE
+    ) / sqrt(length(disease_scores)),
+    p_value = p_value,
+    n_control = length(control_scores),
+    n_disease = length(disease_scores),
+    n_total = length(control_scores) +
+      length(disease_scores),
+    stringsAsFactors = FALSE
+  )
+}
+
+# ============================================================
+# General health validation using all validation samples
+# ============================================================
+
+general_metadata <- metadata
+
+general_abundance <- motu[
+  general_metadata$sample_alias,
+  ,
+  drop = FALSE
+]
+
+general_abundance <- general_abundance[
+  ,
+  colSums(general_abundance) > 0,
+  drop = FALSE
+]
+
+colnames(general_abundance) <- sub(
+  ".*v3_([0-9]{5})\\].*",
+  "\\1",
+  colnames(general_abundance)
+)
+
+general_abundance <- standardize_columns(
+  clr_transform(
+    general_abundance
+  )
+)
+
+general_model_file <- file.path(
+  MODEL_DIR,
+  "General.Health_sp.rds"
+)
+
+general_metadata$log_odds <- predict_logodds(
+  general_model_file,
+  general_abundance
+)
+
+general_metadata$group <- ifelse(
+  general_metadata$HealthCTR != 0,
+  "Control",
+  "Disease"
+)
+
+general_metadata$study_disease <-
+  "Combined cohort\nGeneral health"
+
+general_metadata$disease_name <-
+  "General health"
+
+general_control <- general_metadata$log_odds[
+  general_metadata$group == "Control"
+]
+
+general_disease <- general_metadata$log_odds[
+  general_metadata$group == "Disease"
+]
+
+general_p <- wilcox.test(
+  general_control,
+  general_disease
 )$p.value
 
-control_wh <- tempr$log_odds[tempr$group == "Control"]
-disease_wh <- tempr$log_odds[tempr$group == "Disease"]
+all_plot_data[["General health"]] <-
+  general_metadata
 
-n_control_wh <- length(control_wh)
-n_disease_wh <- length(disease_wh)
-
-stats_data[["worldHealth"]] <- data.frame(
-study = "worldHealth",
-disease_name = "General.Health",
-median_control = median(control_wh, na.rm = TRUE),
-median_disease = median(disease_wh, na.rm = TRUE),
-mean_control = mean(control_wh, na.rm = TRUE),
-mean_disease = mean(disease_wh, na.rm = TRUE),
-sd_control = sd(control_wh, na.rm = TRUE),
-sd_disease = sd(disease_wh, na.rm = TRUE),
-se_control = sd(control_wh, na.rm = TRUE) / sqrt(n_control_wh),
-se_disease = sd(disease_wh, na.rm = TRUE) / sqrt(n_disease_wh),
-log2fc = if (median(control_wh) != 0) log2(median(disease_wh) / median(control_wh)) else NA,
-pval = wilcox_wh,
-n_control = n_control_wh,
-n_disease = n_disease_wh,
-n_total = n_control_wh + n_disease_wh,
-stringsAsFactors = FALSE
+p_value_data[["General health"]] <- data.frame(
+  study_disease = "Combined cohort\nGeneral health",
+  disease_name = "General health",
+  study = "Combined cohort",
+  p_value = general_p,
+  stringsAsFactors = FALSE
 )
 
-stats_df <- bind_rows(stats_data)
+summary_data[["General health"]] <- data.frame(
+  study = "Combined cohort",
+  disease_name = "General health",
+  median_control = median(
+    general_control,
+    na.rm = TRUE
+  ),
+  median_disease = median(
+    general_disease,
+    na.rm = TRUE
+  ),
+  mean_control = mean(
+    general_control,
+    na.rm = TRUE
+  ),
+  mean_disease = mean(
+    general_disease,
+    na.rm = TRUE
+  ),
+  sd_control = sd(
+    general_control,
+    na.rm = TRUE
+  ),
+  sd_disease = sd(
+    general_disease,
+    na.rm = TRUE
+  ),
+  se_control = sd(
+    general_control,
+    na.rm = TRUE
+  ) / sqrt(length(general_control)),
+  se_disease = sd(
+    general_disease,
+    na.rm = TRUE
+  ) / sqrt(length(general_disease)),
+  p_value = general_p,
+  n_control = length(general_control),
+  n_disease = length(general_disease),
+  n_total = length(general_control) +
+    length(general_disease),
+  stringsAsFactors = FALSE
+)
 
-write.csv(stats_df, "fig6b.csv", row.names = FALSE)
+# ============================================================
+# Combine and order results
+# ============================================================
+
+plot_data <- bind_rows(
+  all_plot_data
+)
+
+p_value_table <- bind_rows(
+  p_value_data
+)
+
+summary_table <- bind_rows(
+  summary_data
+)
+
+p_value_table$disease_order <- match(
+  p_value_table$disease_name,
+  outcome_order
+)
+
+p_value_table <- p_value_table %>%
+  arrange(
+    disease_order,
+    study
+  )
+
+plot_data$study_disease <- factor(
+  plot_data$study_disease,
+  levels = p_value_table$study_disease
+)
+
+plot_data$group <- factor(
+  plot_data$group,
+  levels = c(
+    "Control",
+    "Disease"
+  )
+)
+
+summary_table$disease_order <- match(
+  summary_table$disease_name,
+  outcome_order
+)
+
+summary_table <- summary_table %>%
+  arrange(
+    disease_order,
+    study
+  ) %>%
+  select(
+    -disease_order
+  )
+
+# ============================================================
+# Plot helper functions
+# ============================================================
+
+significance_label <- function(p) {
+
+  if (p < 0.001) {
+    "***"
+  } else if (p < 0.01) {
+    "**"
+  } else if (p < 0.05) {
+    "*"
+  } else {
+    "ns"
+  }
+}
+
+calculate_axis <- function(x) {
+
+  data_min <- min(
+    x,
+    na.rm = TRUE
+  )
+
+  data_max <- max(
+    x,
+    na.rm = TRUE
+  )
+
+  data_range <- data_max -
+    data_min
+
+  if (data_range < 0.5) {
+
+    padding <- data_range * 0.5
+
+  } else if (data_range < 1) {
+
+    padding <- data_range * 0.35
+
+  } else if (data_range < 2) {
+
+    padding <- data_range * 0.25
+
+  } else {
+
+    padding <- data_range * 0.15
+  }
+
+  axis_min <- data_min -
+    padding
+
+  axis_max <- data_max +
+    padding
+
+  axis_range <- axis_max -
+    axis_min
+
+  if (axis_range < 2) {
+
+    axis_mid <- (
+      axis_min +
+        axis_max
+    ) / 2
+
+    axis_min <- axis_mid - 1
+    axis_max <- axis_mid + 1
+
+    step <- 1
+
+  } else if (axis_range < 6) {
+
+    step <- 1
+
+  } else if (axis_range < 10) {
+
+    step <- 2
+
+  } else {
+
+    step <- ceiling(
+      axis_range / 5
+    )
+  }
+
+  breaks <- seq(
+    floor(axis_min / step) * step,
+    ceiling(axis_max / step) * step,
+    by = step
+  )
+
+  while (length(breaks) > 5) {
+
+    step <- step + 1
+
+    breaks <- seq(
+      floor(axis_min / step) * step,
+      ceiling(axis_max / step) * step,
+      by = step
+    )
+  }
+
+  list(
+    minimum = axis_min,
+    maximum = axis_max,
+    breaks = breaks
+  )
+}
+
+# ============================================================
+# Generate violin-plot panels
+# ============================================================
+
+plot_list <- list()
+
+for (i in seq_len(nrow(p_value_table))) {
+
+  panel_label <- p_value_table$study_disease[i]
+  disease_name <- p_value_table$disease_name[i]
+  study_name <- p_value_table$study[i]
+  p_value <- p_value_table$p_value[i]
+
+  panel_data <- plot_data[
+    plot_data$study_disease == panel_label,
+    ,
+    drop = FALSE
+  ]
+
+  axis_settings <- calculate_axis(
+    panel_data$log_odds
+  )
+
+  roc_result <- roc(
+    response = as.numeric(
+      panel_data$group
+    ) - 1,
+    predictor = panel_data$log_odds,
+    quiet = TRUE
+  )
+
+  auc_value <- as.numeric(
+    auc(
+      roc_result
+    )
+  )
+
+  auc_label <- paste0(
+    "AUC = ",
+    formatC(
+      auc_value,
+      digits = 3,
+      format = "fg"
+    )
+  )
+
+  significance_y <- axis_settings$maximum -
+    (
+      axis_settings$maximum -
+        axis_settings$minimum
+    ) *
+    0.1
+
+  # For the combined general-health panel, reverse the visual order
+  if (study_name == "Combined cohort") {
+
+    left_group <- "Disease"
+    right_group <- "Control"
+
+  } else {
+
+    left_group <- "Control"
+    right_group <- "Disease"
+  }
+
+  violin_plot <- ggplot(
+    panel_data,
+    aes(
+      x = 1,
+      y = log_odds
+    )
+  ) +
+    geom_violin(
+      data = panel_data[
+        panel_data$group == left_group,
+        ,
+        drop = FALSE
+      ],
+      fill = "#91bfdb",
+      position = position_nudge(
+        x = -0.12
+      ),
+      width = 0.4,
+      alpha = 0.6
+    ) +
+    geom_violin(
+      data = panel_data[
+        panel_data$group == right_group,
+        ,
+        drop = FALSE
+      ],
+      fill = "#fc8d59",
+      position = position_nudge(
+        x = 0.12
+      ),
+      width = 0.4,
+      alpha = 0.6
+    ) +
+    geom_boxplot(
+      data = panel_data[
+        panel_data$group == left_group,
+        ,
+        drop = FALSE
+      ],
+      width = 0.2,
+      position = position_nudge(
+        x = -0.12
+      ),
+      outlier.shape = NA
+    ) +
+    geom_boxplot(
+      data = panel_data[
+        panel_data$group == right_group,
+        ,
+        drop = FALSE
+      ],
+      width = 0.2,
+      position = position_nudge(
+        x = 0.12
+      ),
+      outlier.shape = NA
+    ) +
+    annotate(
+      "text",
+      x = 1,
+      y = significance_y,
+      label = significance_label(
+        p_value
+      ),
+      size = 5 / 2.845
+    ) +
+    scale_x_continuous(
+      breaks = NULL
+    ) +
+    scale_y_continuous(
+      breaks = axis_settings$breaks,
+      limits = c(
+        axis_settings$minimum,
+        axis_settings$maximum
+      )
+    ) +
+    theme_minimal(
+      base_size = 5
+    ) +
+    theme(
+      axis.title = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text = element_text(
+        size = 5
+      ),
+      legend.position = "none",
+      panel.grid.minor = element_blank(),
+      panel.border = element_rect(
+        colour = "black",
+        fill = NA,
+        linewidth = 0.4
+      )
+    )
+
+  title_grob <- grobTree(
+    rectGrob(
+      gp = gpar(
+        fill = "#E6E6E6",
+        col = "black",
+        lwd = 0.6
+      )
+    ),
+    textGrob(
+      panel_label,
+      gp = gpar(
+        fontsize = 2.5,
+        fontface = "bold"
+      )
+    )
+  )
+
+  auc_grob <- grobTree(
+    rectGrob(
+      gp = gpar(
+        fill = "#DCEEFF",
+        col = "black",
+        lwd = 0.6
+      )
+    ),
+    textGrob(
+      auc_label,
+      gp = gpar(
+        fontsize = 5
+      )
+    )
+  )
+
+  p_value_label <- paste0(
+    "p = ",
+    formatC(
+      p_value,
+      digits = 3,
+      format = "e"
+    )
+  )
+
+  p_value_grob <- grobTree(
+    rectGrob(
+      gp = gpar(
+        fill = "#FFE6D5",
+        col = "black",
+        lwd = 0.6
+      )
+    ),
+    textGrob(
+      p_value_label,
+      gp = gpar(
+        fontsize = 5
+      )
+    )
+  )
+
+  combined_panel <- arrangeGrob(
+    title_grob,
+    auc_grob,
+    p_value_grob,
+    violin_plot,
+    ncol = 1,
+    heights = c(
+      0.12,
+      0.10,
+      0.10,
+      0.68
+    )
+  )
+
+  final_panel <- grobTree(
+    rectGrob(
+      gp = gpar(
+        fill = NA,
+        col = "black",
+        lwd = 1
+      )
+    ),
+    combined_panel
+  )
+
+  plot_list[[panel_label]] <- final_panel
+}
+
+# ============================================================
+# Output figure
+# ============================================================
+
+n_panels <- length(
+  plot_list
+)
+
+pdf_width <- 8 *
+  n_panels /
+  16
+
+pdf(
+  OUTPUT_PDF,
+  width = pdf_width,
+  height = 1.3
+)
+
+grid.arrange(
+  grobs = plot_list,
+  nrow = 1
+)
+
+dev.off()
+
+# ============================================================
+# Output summary statistics
+# ============================================================
+
+write.csv(
+  summary_table,
+  OUTPUT_CSV,
+  row.names = FALSE
+)
