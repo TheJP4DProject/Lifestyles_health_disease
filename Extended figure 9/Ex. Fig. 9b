@@ -1,0 +1,540 @@
+# ============================================================
+# Association between disease case numbers and the number of
+# significant causal mediation pairs
+#
+# Significant causal mediation pairs were defined as:
+#   forward mediation FDR < 0.05
+#   inverse mediation P > 0.05
+#
+# Spearman correlation was calculated using the original
+# case numbers and significant mediation-pair counts.
+#
+# The regression line and both axes were constructed in
+# log10-transformed space.
+# ============================================================
+
+rm(list = ls())
+
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+
+# ============================================================
+# File paths
+# ============================================================
+
+MEDIATION_FILE <- "data/causal_mediation_results.csv"
+CASE_NUMBER_FILE <- "data/disease_case_numbers.csv"
+
+OUTPUT_DIR <- "results/case_number_analysis"
+
+OUTPUT_PDF <- file.path(
+  OUTPUT_DIR,
+  "case_number_vs_significant_mediation_pairs.pdf"
+)
+
+OUTPUT_CSV <- file.path(
+  OUTPUT_DIR,
+  "case_number_vs_significant_mediation_pairs.csv"
+)
+
+dir.create(
+  OUTPUT_DIR,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# ============================================================
+# Plot parameters
+# ============================================================
+
+FONT_SIZE <- 6
+
+# ============================================================
+# Disease categories and display labels
+# ============================================================
+
+disease_info <- data.frame(
+  Disease = c(
+    "General health",
+    "IBD",
+    "IBS",
+    "Liver_cirrhosis",
+    "T2D",
+    "Dyslipidemia",
+    "Hypertension",
+    "Hyperuricemia",
+    "IHD",
+    "Heart_failure",
+    "Stroke",
+    "Depression",
+    "Rheumatoid_arthritis",
+    "CTD",
+    "Asthma",
+    "COPD"
+  ),
+
+  Display_name = c(
+    "General health",
+    "IBD",
+    "IBS",
+    "Liver cirrhosis",
+    "T2D",
+    "Dyslipidemia",
+    "Hypertension",
+    "Hyperuricemia",
+    "IHD",
+    "Heart failure",
+    "Stroke",
+    "Depression",
+    "Rheumatoid arthritis",
+    "Collagen disease",
+    "Asthma",
+    "COPD"
+  ),
+
+  Category = c(
+    "General health",
+    "Digestive",
+    "Digestive",
+    "Digestive",
+    "Metabolic",
+    "Metabolic",
+    "Metabolic",
+    "Metabolic",
+    "Cardiovascular",
+    "Cardiovascular",
+    "Cardiovascular",
+    "Psychiatric",
+    "Immune",
+    "Immune",
+    "Respiratory",
+    "Respiratory"
+  ),
+
+  stringsAsFactors = FALSE
+)
+
+category_order <- c(
+  "General health",
+  "Digestive",
+  "Metabolic",
+  "Cardiovascular",
+  "Psychiatric",
+  "Immune",
+  "Respiratory"
+)
+
+category_colors <- c(
+  "General health" = "#fb9a99",
+  "Digestive" = "#CCBE93",
+  "Metabolic" = "#a6cee3",
+  "Cardiovascular" = "#1f78b4",
+  "Psychiatric" = "#b2df8a",
+  "Immune" = "#18BC9C",
+  "Respiratory" = "#fdbf6f"
+)
+
+disease_order <- disease_info$Disease
+
+# ============================================================
+# Read causal mediation results
+# ============================================================
+
+mediation_data <- read.csv(
+  MEDIATION_FILE,
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+mediation_data <- mediation_data %>%
+  mutate(
+    Avg_causal_mediation_pval =
+      as.numeric(Avg_causal_mediation_pval),
+
+    Inv_Avg_causal_mediation_pval =
+      as.numeric(Inv_Avg_causal_mediation_pval)
+  )
+
+# ============================================================
+# Calculate FDR within each exposure-disease combination
+# ============================================================
+
+mediation_data <- mediation_data %>%
+  group_by(
+    Treat,
+    Disease
+  ) %>%
+  mutate(
+    Forward_FDR = p.adjust(
+      Avg_causal_mediation_pval,
+      method = "BH"
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(
+    Significant =
+      !is.na(Forward_FDR) &
+      Forward_FDR < 0.05 &
+      !is.na(Inv_Avg_causal_mediation_pval) &
+      Inv_Avg_causal_mediation_pval > 0.05
+  )
+
+# ============================================================
+# Count significant mediation pairs for each disease
+# ============================================================
+
+significant_pair_count <- mediation_data %>%
+  group_by(
+    Disease
+  ) %>%
+  summarise(
+    Significant_pair_count = sum(
+      Significant,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+# ============================================================
+# Read disease case numbers
+# ============================================================
+
+case_number_data <- read.csv(
+  CASE_NUMBER_FILE,
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+# Required columns in CASE_NUMBER_FILE:
+#   Disease
+#   Case_number
+
+# ============================================================
+# Merge case numbers, pair counts, and disease annotations
+# ============================================================
+
+plot_data <- case_number_data %>%
+  left_join(
+    significant_pair_count,
+    by = "Disease"
+  ) %>%
+  mutate(
+    Significant_pair_count = ifelse(
+      is.na(Significant_pair_count),
+      0,
+      Significant_pair_count
+    )
+  ) %>%
+  left_join(
+    disease_info,
+    by = "Disease"
+  ) %>%
+  mutate(
+    Disease = factor(
+      Disease,
+      levels = disease_order
+    ),
+
+    Category = factor(
+      Category,
+      levels = category_order
+    )
+  ) %>%
+  arrange(
+    Disease
+  )
+
+# ============================================================
+# Spearman correlation using untransformed values
+# ============================================================
+
+spearman_result <- cor.test(
+  plot_data$Case_number,
+  plot_data$Significant_pair_count,
+  method = "spearman",
+  exact = FALSE
+)
+
+spearman_rho <- unname(
+  spearman_result$estimate
+)
+
+spearman_p <- spearman_result$p.value
+
+format_p_value <- function(p) {
+
+  if (is.na(p)) {
+    return("NA")
+  }
+
+  if (p < 0.001) {
+    return(
+      formatC(
+        p,
+        format = "e",
+        digits = 2
+      )
+    )
+  }
+
+  sprintf(
+    "%.3f",
+    p
+  )
+}
+
+stat_label <- paste0(
+  "Spearman \u03c1 = ",
+  sprintf(
+    "%.2f",
+    spearman_rho
+  ),
+  "\nP = ",
+  format_p_value(
+    spearman_p
+  )
+)
+
+# ============================================================
+# Log10 transformation for plotting and linear regression
+# ============================================================
+
+plot_data <- plot_data %>%
+  mutate(
+    Log10_case_number =
+      log10(Case_number),
+
+    Log10_significant_pair_count =
+      log10(Significant_pair_count + 1)
+  ) %>%
+  filter(
+    is.finite(Log10_case_number),
+    is.finite(Log10_significant_pair_count)
+  )
+
+# ============================================================
+# Plot
+# ============================================================
+
+p <- ggplot(
+  plot_data,
+  aes(
+    x = Log10_case_number,
+    y = Log10_significant_pair_count
+  )
+) +
+
+  geom_smooth(
+    method = "lm",
+    formula = y ~ x,
+    se = TRUE,
+    color = "black",
+    fill = "grey80",
+    linewidth = 0.5,
+    alpha = 0.3
+  ) +
+
+  geom_point(
+    aes(
+      color = Category
+    ),
+    size = 2.4,
+    alpha = 0.9
+  ) +
+
+  geom_text_repel(
+    aes(
+      label = Display_name
+    ),
+    size = FONT_SIZE / ggplot2::.pt,
+    color = "black",
+    box.padding = 0.35,
+    point.padding = 0.25,
+    min.segment.length = 0,
+    segment.linewidth = 0.2,
+    segment.color = "grey50",
+    max.overlaps = Inf,
+    force = 2,
+    force_pull = 0.5,
+    seed = 123
+  ) +
+
+  annotate(
+    "text",
+    x = Inf,
+    y = Inf,
+    label = stat_label,
+    hjust = 1.05,
+    vjust = 1.1,
+    size = FONT_SIZE / ggplot2::.pt
+  ) +
+
+  scale_color_manual(
+    values = category_colors,
+    breaks = category_order,
+    drop = FALSE
+  ) +
+
+  scale_x_continuous(
+    name = "Case number",
+    breaks = log10(
+      c(
+        10,
+        30,
+        100,
+        300,
+        1000,
+        3000
+      )
+    ),
+    labels = c(
+      "10",
+      "30",
+      "100",
+      "300",
+      "1000",
+      "3000"
+    ),
+    expand = expansion(
+      mult = c(
+        0.06,
+        0.18
+      )
+    )
+  ) +
+
+  scale_y_continuous(
+    name = "Number of significant mediation pairs",
+    breaks = log10(
+      c(
+        200,
+        500,
+        1000,
+        2000,
+        3000
+      )
+    ),
+    labels = c(
+      "200",
+      "500",
+      "1000",
+      "2000",
+      "3000"
+    ),
+    expand = expansion(
+      mult = c(
+        0.02,
+        0.02
+      )
+    )
+  ) +
+
+  coord_cartesian(
+    ylim = c(
+      log10(200),
+      log10(3000)
+    ),
+    clip = "off"
+  ) +
+
+  labs(
+    title = "Case number vs significant mediation pairs",
+    subtitle = "FDR < 0.05 and inverse P > 0.05",
+    color = "Category"
+  ) +
+
+  theme_classic(
+    base_size = FONT_SIZE
+  ) +
+
+  theme(
+    text = element_text(
+      size = FONT_SIZE
+    ),
+
+    plot.title = element_text(
+      size = FONT_SIZE
+    ),
+
+    plot.subtitle = element_text(
+      size = FONT_SIZE
+    ),
+
+    axis.title = element_text(
+      size = FONT_SIZE
+    ),
+
+    axis.text = element_text(
+      size = FONT_SIZE,
+      color = "black"
+    ),
+
+    legend.title = element_text(
+      size = FONT_SIZE
+    ),
+
+    legend.text = element_text(
+      size = FONT_SIZE
+    ),
+
+    legend.key.size = grid::unit(
+      FONT_SIZE - 1,
+      "pt"
+    ),
+
+    panel.border = element_rect(
+      color = "grey70",
+      fill = NA,
+      linewidth = 0.5
+    ),
+
+    plot.margin = margin(
+      t = 8,
+      r = 10,
+      b = 8,
+      l = 8,
+      unit = "pt"
+    )
+  )
+
+# ============================================================
+# Output figure
+# ============================================================
+
+ggsave(
+  filename = OUTPUT_PDF,
+  plot = p,
+  width = 6,
+  height = 2.2,
+  units = "in",
+  useDingbats = FALSE
+)
+
+# ============================================================
+# Output plotting data
+# ============================================================
+
+output_data <- plot_data %>%
+  mutate(
+    Disease = as.character(
+      Disease
+    ),
+
+    Category = as.character(
+      Category
+    )
+  ) %>%
+  select(
+    Disease,
+    Display_name,
+    Category,
+    Case_number,
+    Significant_pair_count
+  )
+
+write.csv(
+  output_data,
+  OUTPUT_CSV,
+  row.names = FALSE
+)
