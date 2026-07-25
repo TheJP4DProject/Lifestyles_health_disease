@@ -1,0 +1,348 @@
+# ============================================================
+# Sample-size matched mediation sensitivity analysis
+#
+# Indirect effects estimated in the full dataset are compared
+# with those estimated in 10 sample-size matched subsets.
+# ============================================================
+
+rm(list = ls())
+
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(readr)
+
+# ============================================================
+# File paths
+# ============================================================
+
+SUBSAMPLE_FILE <- "data/mediation_subsample_10sets.csv"
+FULL_DATA_FILE <- "data/mediation_full_dataset.csv"
+
+OUTPUT_PDF <- "results/sample_size_sensitivity.pdf"
+OUTPUT_CSV <- "results/sample_size_sensitivity.csv"
+
+dir.create(
+  dirname(OUTPUT_PDF),
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# ============================================================
+# Parameters
+# ============================================================
+
+N_SETS <- 10
+MIN_PAIRS_FOR_CORRELATION <- 3
+
+DISEASE_ORDER <- c(
+  "General health",
+  "IBD",
+  "IBS",
+  "Liver cirrhosis",
+  "T2D",
+  "Dyslipidemia",
+  "Hypertension",
+  "Hyperuricemia",
+  "IHD",
+  "Heart failure",
+  "Stroke",
+  "Depression",
+  "Rheumatoid arthritis",
+  "Collagen disease",
+  "Asthma",
+  "COPD"
+)
+
+# ============================================================
+# Read mediation results
+# ============================================================
+
+subsample_data <- read_csv(
+  SUBSAMPLE_FILE,
+  show_col_types = FALSE
+) %>%
+  filter(
+    Set <= N_SETS
+  ) %>%
+  select(
+    Treat,
+    Disease,
+    Mediator,
+    Set,
+    Subsample_effect = Avg_causal_mediation_effect
+  )
+
+full_data <- read_csv(
+  FULL_DATA_FILE,
+  show_col_types = FALSE
+) %>%
+  select(
+    Treat,
+    Disease,
+    Mediator,
+    Full_effect = Avg_causal_mediation_effect
+  )
+
+# ============================================================
+# Match full-dataset and subset mediation pairs
+# ============================================================
+
+comparison_data <- subsample_data %>%
+  inner_join(
+    full_data,
+    by = c(
+      "Treat",
+      "Disease",
+      "Mediator"
+    )
+  ) %>%
+  filter(
+    is.finite(Full_effect),
+    is.finite(Subsample_effect)
+  ) %>%
+  mutate(
+    Direction_match =
+      sign(Full_effect) ==
+      sign(Subsample_effect)
+  )
+
+# ============================================================
+# Disease-by-set sensitivity metrics
+# ============================================================
+
+sensitivity_results <- comparison_data %>%
+  group_by(
+    Disease,
+    Set
+  ) %>%
+  summarise(
+    N_pairs = n(),
+
+    Effect_rho = if (
+      n() >= MIN_PAIRS_FOR_CORRELATION &&
+      n_distinct(Full_effect) >= 2 &&
+      n_distinct(Subsample_effect) >= 2
+    ) {
+      cor(
+        Full_effect,
+        Subsample_effect,
+        method = "spearman"
+      )
+    } else {
+      NA_real_
+    },
+
+    Direction_concordance = mean(
+      Direction_match,
+      na.rm = TRUE
+    ),
+
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Disease = factor(
+      Disease,
+      levels = DISEASE_ORDER
+    )
+  ) %>%
+  arrange(
+    Disease,
+    Set
+  )
+
+# ============================================================
+# Common figure theme
+# ============================================================
+
+common_theme <- theme_classic(
+  base_size = 6
+) +
+  theme(
+    text = element_text(
+      size = 6
+    ),
+    plot.title = element_text(
+      face = "bold",
+      size = 6
+    ),
+    plot.subtitle = element_text(
+      size = 6
+    ),
+    axis.title = element_text(
+      size = 6
+    ),
+    axis.text = element_text(
+      size = 6
+    ),
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      vjust = 1
+    ),
+    axis.ticks = element_line(
+      linewidth = 0.25
+    ),
+    axis.line = element_line(
+      linewidth = 0.30
+    ),
+    plot.margin = margin(
+      t = 3,
+      r = 4,
+      b = 2,
+      l = 3
+    )
+  )
+
+# ============================================================
+# Panel A: correlation of indirect effects
+# ============================================================
+
+panel_a <- ggplot(
+  sensitivity_results,
+  aes(
+    x = Disease,
+    y = Effect_rho
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = 2,
+    linewidth = 0.25
+  ) +
+  geom_jitter(
+    width = 0.08,
+    height = 0,
+    size = 2.4,
+    color = "grey60",
+    alpha = 0.60,
+    na.rm = TRUE
+  ) +
+  stat_summary(
+    fun = median,
+    geom = "crossbar",
+    width = 0.20,
+    fatten = 0,
+    linewidth = 0.65,
+    na.rm = TRUE
+  ) +
+  scale_x_discrete(
+    limits = DISEASE_ORDER,
+    drop = TRUE
+  ) +
+  scale_y_continuous(
+    breaks = c(
+      0,
+      0.25,
+      0.50,
+      0.75,
+      1.00
+    ),
+    limits = c(
+      -0.05,
+      1
+    ),
+    expand = expansion(
+      mult = c(0, 0)
+    )
+  ) +
+  labs(
+    title = "A",
+    subtitle = "Full dataset versus matched subsets",
+    x = NULL,
+    y = "Spearman's rho"
+  ) +
+  common_theme
+
+# ============================================================
+# Panel B: direction concordance
+# ============================================================
+
+panel_b <- ggplot(
+  sensitivity_results,
+  aes(
+    x = Disease,
+    y = Direction_concordance
+  )
+) +
+  geom_hline(
+    yintercept = 0.5,
+    linetype = 2,
+    linewidth = 0.25
+  ) +
+  geom_jitter(
+    width = 0.08,
+    height = 0,
+    size = 2.4,
+    color = "grey60",
+    alpha = 0.60,
+    na.rm = TRUE
+  ) +
+  stat_summary(
+    fun = median,
+    geom = "crossbar",
+    width = 0.20,
+    fatten = 0,
+    linewidth = 0.65,
+    na.rm = TRUE
+  ) +
+  scale_x_discrete(
+    limits = DISEASE_ORDER,
+    drop = TRUE
+  ) +
+  scale_y_continuous(
+    breaks = c(
+      0.50,
+      0.625,
+      0.75,
+      0.875,
+      1.00
+    ),
+    labels = c(
+      "50%",
+      "62.5%",
+      "75%",
+      "87.5%",
+      "100%"
+    ),
+    limits = c(
+      0.475,
+      1
+    ),
+    expand = expansion(
+      mult = c(0, 0)
+    )
+  ) +
+  labs(
+    title = "B",
+    subtitle = "Direction concordance across matched subsets",
+    x = NULL,
+    y = "Direction concordance"
+  ) +
+  common_theme
+
+# ============================================================
+# Output
+# ============================================================
+
+combined_plot <- panel_a / panel_b
+
+ggsave(
+  filename = OUTPUT_PDF,
+  plot = combined_plot,
+  width = 4,
+  height = 6,
+  units = "in",
+  useDingbats = FALSE
+)
+
+write.csv(
+  sensitivity_results %>%
+    mutate(
+      Disease = as.character(
+        Disease
+      )
+    ),
+  OUTPUT_CSV,
+  row.names = FALSE
+)
