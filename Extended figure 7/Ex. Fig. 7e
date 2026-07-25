@@ -1,0 +1,96 @@
+library(tidyverse)
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+library(openxlsx)
+library(stringr)
+
+set.seed(100)
+
+CELL <- 2.5
+FS <- 5
+FS_SIG <- 5
+
+sp_list_df <- read.xlsx("Supplementary Tables_260405.xlsx", sheet="Sfig.8_data")
+sp_list_df$ID5 <- str_pad(as.character(sp_list_df$ID), width=5, pad="0")
+sp_split <- factor(sp_list_df$anno, levels=unique(sp_list_df$anno))
+sp_csv <- sp_list_df
+
+KO_list <- c(
+"K01136","K01137","K01205","K01197","K12373",
+"K01206","K15923","K01190","K01186"
+)
+
+sp_names <- sp_csv$GTDB
+
+rho_mat <- matrix(NA, length(KO_list), nrow(sp_csv))
+pval_mat <- matrix(NA, length(KO_list), nrow(sp_csv))
+qval_mat <- matrix(NA, length(KO_list), nrow(sp_csv))
+
+rownames(rho_mat) <- KO_list
+rownames(pval_mat) <- KO_list
+rownames(qval_mat) <- KO_list
+
+colnames(rho_mat) <- sp_names
+colnames(pval_mat) <- sp_names
+colnames(qval_mat) <- sp_names
+
+for (ko in KO_list) {
+rho_mat[ko, ] <- sp_csv[[paste0(ko,"_Rho")]]
+pval_mat[ko, ] <- sp_csv[[paste0(ko,"_P")]]
+qval_mat[ko, ] <- sp_csv[[paste0(ko,"_FDR")]]
+}
+
+rho_mat <- as.data.frame(rho_mat)
+pval_mat <- as.data.frame(pval_mat)
+qval_mat <- as.data.frame(qval_mat)
+
+make_cell_fun_spearman <- function(qmat, pmat){
+function(j,i,x,y,w,h,fill){
+qv <- qmat[i,j]
+pv <- pmat[i,j]
+if(!is.na(qv) && qv < 0.05){
+grid.text("**",x,y,vjust=0.8,gp=gpar(fontsize=FS_SIG,fontface="bold"))
+} else if(!is.na(pv) && pv < 0.05){
+grid.text("*",x,y,vjust=0.8,gp=gpar(fontsize=FS_SIG,fontface="bold"))
+}
+}
+}
+
+col_rho <- colorRamp2(c(-0.2,0,0.2), c("skyblue","white","pink"))
+
+legend_param <- list(
+title_gp=gpar(fontsize=5,fontface="bold"),
+labels_gp=gpar(fontsize=5),
+grid_height=unit(1.4,"mm"),
+grid_width=unit(1.4,"mm"),
+legend_height=unit(20,"mm")
+)
+
+hm_central <- Heatmap(
+as.matrix(rho_mat),
+name="Spearman Rho\n(P: * < 0.05, FDR: ** < 0.05)",
+col=col_rho,
+cluster_rows=FALSE,
+cluster_columns=FALSE,
+column_names_rot=45,
+row_names_gp=gpar(fontsize=FS),
+column_names_gp=gpar(fontsize=FS,fontface="italic"),
+heatmap_legend_param=legend_param,
+height=nrow(rho_mat)*unit(CELL,"mm"),
+width=ncol(rho_mat)*unit(CELL,"mm"),
+na_col="grey90",
+cell_fun=make_cell_fun_spearman(qval_mat, pval_mat)
+)
+
+width_in <- (ncol(rho_mat)*CELL/10+6)/2.54
+height_in <- (nrow(rho_mat)*CELL/10+6)/2.54
+
+pdf("Sfig8.pdf", width=width_in, height=height_in, family="Helvetica")
+
+draw(hm_central,
+padding=unit(c(15,60,5,5),"mm"),
+merge_legend=TRUE,
+heatmap_legend_side="right")
+
+dev.off()
