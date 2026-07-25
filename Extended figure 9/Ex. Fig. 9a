@@ -1,0 +1,216 @@
+# ============================================================
+# Sensitivity analysis of causal mediation effects
+#
+# Significant causal mediation pairs were defined as:
+#   FDR < 0.05 and inverse mediation P > 0.05.
+#
+# Spearman correlations compare mediation effects from the
+# primary model with those from Models 2–7.
+# ============================================================
+
+library(dplyr)
+library(ggplot2)
+
+# ============================================================
+# File paths
+# ============================================================
+
+INPUT_FILE <- "data/causal_model_comparison.csv"
+OUTPUT_PDF <- "results/causal_model_spearman.pdf"
+OUTPUT_CSV <- "results/causal_model_spearman.csv"
+
+dir.create(
+  dirname(OUTPUT_PDF),
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# ============================================================
+# Parameters
+# ============================================================
+
+FONT_SIZE <- 6
+BAR_WIDTH <- 0.42
+
+models <- paste0(
+  "Model",
+  2:7
+)
+
+# ============================================================
+# Read and filter causal mediation results
+# ============================================================
+
+causal <- read.csv(
+  INPUT_FILE,
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+)
+
+causal <- causal %>%
+  filter(
+    Avg_causal_mediation_qval < 0.05,
+    Inv_Avg_causal_mediation_pval > 0.05
+  )
+
+# ============================================================
+# Convert model results to long format
+# ============================================================
+
+comparison_data <- bind_rows(
+  lapply(
+    models,
+    function(model_name) {
+
+      data.frame(
+        Model = model_name,
+        Primary_effect =
+          causal$Avg_causal_mediation_effect,
+        Sensitivity_effect =
+          causal[[
+            paste0(
+              model_name,
+              "_for_Avg_causal_mediation_effect"
+            )
+          ]]
+      )
+    }
+  )
+) %>%
+  filter(
+    is.finite(Primary_effect),
+    is.finite(Sensitivity_effect)
+  )
+
+# ============================================================
+# Spearman correlations
+# ============================================================
+
+summary_data <- comparison_data %>%
+  group_by(Model) %>%
+  summarise(
+    N = n(),
+    Rho = cor(
+      Primary_effect,
+      Sensitivity_effect,
+      method = "spearman"
+    ),
+    P_value = cor.test(
+      Primary_effect,
+      Sensitivity_effect,
+      method = "spearman",
+      exact = FALSE
+    )$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Model = factor(
+      Model,
+      levels = models
+    ),
+    Label = paste0(
+      "rho, ",
+      sprintf("%.3f", Rho),
+      "\n",
+      ifelse(
+        P_value < 0.001,
+        "P < 0.001",
+        paste0(
+          "P = ",
+          signif(P_value, 3)
+        )
+      ),
+      "\n",
+      "n = ",
+      N
+    )
+  )
+
+# ============================================================
+# Plot
+# ============================================================
+
+y_upper <- max(
+  summary_data$Rho,
+  na.rm = TRUE
+) + 0.18
+
+p <- ggplot(
+  summary_data,
+  aes(
+    x = Model,
+    y = Rho
+  )
+) +
+  geom_col(
+    width = BAR_WIDTH,
+    fill = "grey65",
+    color = "grey30",
+    linewidth = 0.2
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linewidth = 0.3
+  ) +
+  geom_text(
+    aes(
+      label = Label
+    ),
+    vjust = -0.2,
+    size = FONT_SIZE / ggplot2::.pt
+  ) +
+  coord_cartesian(
+    ylim = c(
+      min(0, min(summary_data$Rho)) - 0.05,
+      y_upper
+    )
+  ) +
+  labs(
+    x = NULL,
+    y = "Spearman rho"
+  ) +
+  theme_bw(
+    base_size = FONT_SIZE
+  ) +
+  theme(
+    text = element_text(
+      size = FONT_SIZE
+    ),
+    axis.text = element_text(
+      size = FONT_SIZE,
+      color = "black"
+    ),
+    axis.title = element_text(
+      size = FONT_SIZE
+    ),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank()
+  )
+
+# ============================================================
+# Output
+# ============================================================
+
+ggsave(
+  OUTPUT_PDF,
+  plot = p,
+  width = 6,
+  height = 2.5,
+  units = "in",
+  useDingbats = FALSE
+)
+
+write.csv(
+  summary_data %>%
+    mutate(
+      Model = as.character(Model)
+    ) %>%
+    select(
+      Model,
+      N,
+      Rho,
+      P_value
+    ),
+  OUTPUT_CSV,
+  row.names = FALSE
+)
