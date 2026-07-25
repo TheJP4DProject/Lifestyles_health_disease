@@ -1,0 +1,597 @@
+# ============================================================
+# Comparison of pooled out-of-fold test AUCs from 10-fold CV
+#
+# Models:
+#   Host model
+#   MADE model
+#   MADE & Host model
+#
+# Bar height:
+#   pooled out-of-fold test AUC
+#
+# Error bars:
+#   95% CI calculated from the 10 fold-level test AUC values
+#
+# Statistical comparison:
+#   paired DeLong test
+# ============================================================
+
+rm(list = ls())
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(grid)
+
+# ============================================================
+# File paths
+# ============================================================
+
+AUC_FILE <- "data/model_10fold_auc_results.csv"
+DELONG_FILE <- "data/model_10fold_delong_results.csv"
+
+OUTPUT_PDF <- "results/model_10fold_auc_comparison.pdf"
+OUTPUT_AUC_CSV <- "results/model_10fold_auc_summary.csv"
+OUTPUT_DELONG_CSV <- "results/model_10fold_delong_summary.csv"
+
+dir.create(
+  dirname(OUTPUT_PDF),
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# ============================================================
+# Model settings
+# ============================================================
+
+MODEL_LABELS <- c(
+  "Clinical only" = "Host model",
+  "MADE only" = "MADE model",
+  "Clinical + MADE" = "MADE & Host model"
+)
+
+MODEL_ORDER <- c(
+  "Host model",
+  "MADE model",
+  "MADE & Host model"
+)
+
+MODEL_COLORS <- c(
+  "Host model" = "#BDBDBD",
+  "MADE model" = "#84AEDD",
+  "MADE & Host model" = "#D97B8A"
+)
+
+# ============================================================
+# Disease order and plot labels
+# ============================================================
+
+DISEASE_ORDER <- c(
+  "General health",
+  "IBD",
+  "IBS",
+  "Liver cirrhosis",
+  "T2D",
+  "Dyslipidemia",
+  "Hypertension",
+  "Hyperuricemia",
+  "IHD",
+  "Heart failure",
+  "Stroke",
+  "Depression",
+  "Rheumatoid arthritis",
+  "Collagen disease",
+  "Asthma",
+  "COPD"
+)
+
+# ============================================================
+# Read input data
+# ============================================================
+
+auc_data <- read.csv(
+  AUC_FILE,
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+delong_data <- read.csv(
+  DELONG_FILE,
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+# Input disease names are assumed to already match DISEASE_ORDER.
+
+# ============================================================
+# Calculate 95% CI from fold-level test AUC values
+# ============================================================
+
+fold_test_columns <- grep(
+  "^fold[0-9]+_test_auc$",
+  colnames(auc_data),
+  value = TRUE
+)
+
+fold_test_columns <- fold_test_columns[
+  order(
+    as.integer(
+      sub(
+        "^fold([0-9]+)_test_auc$",
+        "\\1",
+        fold_test_columns
+      )
+    )
+  )
+]
+
+calculate_fold_ci <- function(x) {
+
+  x <- as.numeric(x)
+  x <- x[is.finite(x)]
+
+  n <- length(x)
+
+  if (n < 2) {
+    return(
+      c(
+        CI_low = NA_real_,
+        CI_high = NA_real_
+      )
+    )
+  }
+
+  mean_auc <- mean(x)
+  se_auc <- sd(x) / sqrt(n)
+
+  critical_value <- qt(
+    0.975,
+    df = n - 1
+  )
+
+  c(
+    CI_low = max(
+      0.5,
+      mean_auc - critical_value * se_auc
+    ),
+    CI_high = min(
+      1,
+      mean_auc + critical_value * se_auc
+    )
+  )
+}
+
+fold_ci <- t(
+  apply(
+    auc_data[
+      ,
+      fold_test_columns,
+      drop = FALSE
+    ],
+    1,
+    calculate_fold_ci
+  )
+)
+
+auc_data$CI_low <- fold_ci[, "CI_low"]
+auc_data$CI_high <- fold_ci[, "CI_high"]
+
+# Ensure pooled AUC is inside the displayed interval
+auc_data$CI_low <- ifelse(
+  is.na(auc_data$CI_low),
+  auc_data$pooled_test_auc,
+  pmin(
+    auc_data$CI_low,
+    auc_data$pooled_test_auc
+  )
+)
+
+auc_data$CI_high <- ifelse(
+  is.na(auc_data$CI_high),
+  auc_data$pooled_test_auc,
+  pmax(
+    auc_data$CI_high,
+    auc_data$pooled_test_auc
+  )
+)
+
+# ============================================================
+# Prepare AUC plotting data
+# ============================================================
+
+plot_data <- auc_data %>%
+  filter(
+    model %in% names(MODEL_LABELS),
+    tolower(status) %in% c(
+      "success",
+      "ok"
+    )
+  ) %>%
+  mutate(
+    Model = unname(
+      MODEL_LABELS[model]
+    ),
+
+    Model = factor(
+      Model,
+      levels = MODEL_ORDER
+    ),
+
+    Disease = factor(
+      outcome,
+      levels = DISEASE_ORDER
+    ),
+
+    x_position = as.numeric(
+      Model
+    ),
+
+    AUC_label = sprintf(
+      "%.3f",
+      pooled_test_auc
+    )
+  ) %>%
+  arrange(
+    Disease,
+    Model
+  )
+
+# ============================================================
+# Format DeLong P values
+# ============================================================
+
+format_p_value <- function(p) {
+
+  if (is.na(p)) {
+    return("P=NA")
+  }
+
+  if (p == 0) {
+    return("P<1e-300")
+  }
+
+  scientific_value <- formatC(
+    p,
+    format = "e",
+    digits = 2
+  )
+
+  parts <- strsplit(
+    scientific_value,
+    "e"
+  )[[1]]
+
+  paste0(
+    "P=",
+    parts[1],
+    "e",
+    as.integer(parts[2])
+  )
+}
+
+# ============================================================
+# Prepare DeLong brackets
+# ============================================================
+
+bracket_data <- delong_data %>%
+  filter(
+    model_1 %in% names(MODEL_LABELS),
+    model_2 %in% names(MODEL_LABELS)
+  ) %>%
+  mutate(
+    Model_1 = unname(
+      MODEL_LABELS[model_1]
+    ),
+
+    Model_2 = unname(
+      MODEL_LABELS[model_2]
+    ),
+
+    Disease = factor(
+      outcome,
+      levels = DISEASE_ORDER
+    ),
+
+    x1 = match(
+      Model_1,
+      MODEL_ORDER
+    ),
+
+    x2 = match(
+      Model_2,
+      MODEL_ORDER
+    ),
+
+    comparison_level = case_when(
+      Model_1 == "Host model" &
+        Model_2 == "MADE model" ~ 1,
+
+      Model_1 == "Host model" &
+        Model_2 == "MADE & Host model" ~ 2,
+
+      Model_1 == "MADE model" &
+        Model_2 == "MADE & Host model" ~ 3
+    ),
+
+    bracket_y = case_when(
+      comparison_level == 1 ~ 0.98,
+      comparison_level == 2 ~ 1.06,
+      comparison_level == 3 ~ 1.14
+    ),
+
+    text_y = bracket_y + 0.012,
+
+    x_middle = (
+      x1 + x2
+    ) / 2,
+
+    P_label = vapply(
+      p_value,
+      format_p_value,
+      character(1)
+    )
+  ) %>%
+  filter(
+    !is.na(x1),
+    !is.na(x2),
+    !is.na(bracket_y)
+  )
+
+# ============================================================
+# Plot
+# ============================================================
+
+p <- ggplot(
+  plot_data,
+  aes(
+    x = x_position,
+    y = pooled_test_auc
+  )
+) +
+
+  geom_col(
+    aes(
+      fill = Model
+    ),
+    width = 0.4,
+    color = "black",
+    linewidth = 0.15
+  ) +
+
+  geom_errorbar(
+    aes(
+      ymin = CI_low,
+      ymax = CI_high
+    ),
+    width = 0.16,
+    linewidth = 0.15
+  ) +
+
+  geom_text(
+    aes(
+      label = AUC_label
+    ),
+    vjust = -0.35,
+    size = 1.35
+  ) +
+
+  geom_hline(
+    yintercept = 0.5,
+    linetype = "dashed",
+    linewidth = 0.15
+  ) +
+
+  geom_segment(
+    data = bracket_data,
+    aes(
+      x = x1,
+      xend = x2,
+      y = bracket_y,
+      yend = bracket_y
+    ),
+    inherit.aes = FALSE,
+    linewidth = 0.15
+  ) +
+
+  geom_segment(
+    data = bracket_data,
+    aes(
+      x = x1,
+      xend = x1,
+      y = bracket_y,
+      yend = bracket_y - 0.012
+    ),
+    inherit.aes = FALSE,
+    linewidth = 0.15
+  ) +
+
+  geom_segment(
+    data = bracket_data,
+    aes(
+      x = x2,
+      xend = x2,
+      y = bracket_y,
+      yend = bracket_y - 0.012
+    ),
+    inherit.aes = FALSE,
+    linewidth = 0.15
+  ) +
+
+  geom_text(
+    data = bracket_data,
+    aes(
+      x = x_middle,
+      y = text_y,
+      label = P_label
+    ),
+    inherit.aes = FALSE,
+    size = 1.25,
+    vjust = 0
+  ) +
+
+  facet_wrap(
+    ~ Disease,
+    ncol = 3,
+    drop = TRUE
+  ) +
+
+  scale_fill_manual(
+    values = MODEL_COLORS,
+    breaks = MODEL_ORDER
+  ) +
+
+  scale_x_continuous(
+    breaks = 1:3,
+    labels = MODEL_ORDER,
+    limits = c(
+      0.5,
+      3.5
+    ),
+    expand = expansion(
+      mult = c(
+        0.02,
+        0.02
+      )
+    )
+  ) +
+
+  scale_y_continuous(
+    limits = c(
+      0.5,
+      1.20
+    ),
+    breaks = c(
+      0.5,
+      0.75,
+      1
+    ),
+    expand = expansion(
+      mult = c(
+        0,
+        0.02
+      )
+    )
+  ) +
+
+  labs(
+    title = "10-fold CV pooled test AUC",
+    x = NULL,
+    y = "AUC",
+    fill = NULL
+  ) +
+
+  theme_bw(
+    base_size = 5
+  ) +
+
+  theme(
+    plot.title = element_text(
+      size = 5,
+      face = "bold"
+    ),
+
+    strip.text = element_text(
+      size = 5,
+      face = "bold"
+    ),
+
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+
+    axis.text.y = element_text(
+      size = 5
+    ),
+
+    axis.title.y = element_text(
+      size = 5
+    ),
+
+    legend.position = "top",
+
+    legend.text = element_text(
+      size = 5
+    ),
+
+    legend.key.size = unit(
+      2.3,
+      "mm"
+    ),
+
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+
+    panel.spacing = unit(
+      1,
+      "mm"
+    ),
+
+    strip.background = element_rect(
+      fill = "grey90",
+      color = "black",
+      linewidth = 0.15
+    ),
+
+    panel.border = element_rect(
+      color = "black",
+      fill = NA,
+      linewidth = 0.15
+    ),
+
+    plot.margin = margin(
+      2,
+      2,
+      2,
+      2
+    )
+  )
+
+# ============================================================
+# Output
+# ============================================================
+
+ggsave(
+  OUTPUT_PDF,
+  plot = p,
+  width = 2.5,
+  height = 5,
+  units = "in",
+  useDingbats = FALSE
+)
+
+auc_output <- plot_data %>%
+  transmute(
+    Disease = as.character(
+      Disease
+    ),
+    Model = as.character(
+      Model
+    ),
+    Pooled_test_AUC = pooled_test_auc,
+    CI_low,
+    CI_high
+  )
+
+delong_output <- bracket_data %>%
+  transmute(
+    Disease = as.character(
+      Disease
+    ),
+    Model_1,
+    Model_2,
+    AUC_model_1 = auc_model_1,
+    AUC_model_2 = auc_model_2,
+    Delta_AUC = delta_auc_model_2_minus_model_1,
+    P_value = p_value
+  )
+
+write.csv(
+  auc_output,
+  OUTPUT_AUC_CSV,
+  row.names = FALSE
+)
+
+write.csv(
+  delong_output,
+  OUTPUT_DELONG_CSV,
+  row.names = FALSE
+)
