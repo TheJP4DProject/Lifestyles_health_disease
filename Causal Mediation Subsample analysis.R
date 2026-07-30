@@ -6,7 +6,6 @@
 library(mediation)
 
 # Set parameters, file paths, and analysis targets
-
 set.seed(123)
 
 args <- commandArgs(trailingOnly = TRUE)
