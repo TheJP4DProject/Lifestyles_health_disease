@@ -21,7 +21,6 @@ KO_FILE <- "data/ko_abundance.xlsx"
 OUTPUT_DIR <- "results/beta_diversity"
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-
 # Load metadata, define variables, and add log10 sequencing depth
 metadata <- read.xlsx(METADATA_FILE, check.names = FALSE)
 metadata <- metadata[, -c(2, 3)]
