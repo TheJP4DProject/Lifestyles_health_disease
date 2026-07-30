@@ -21,7 +21,6 @@ MIN_PREVALENCE <- 0.025
 METADATA_FILE <- "data/metadata.csv"
 ABUNDANCE_FILE <- "data/motu_abundance.xlsx"
 OUTPUT_DIR <- "results/host_vs_made"
-
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
 metadata <- read.csv(
