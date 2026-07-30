@@ -31,7 +31,7 @@ rownames(metadata)=metadata$METAF
 newtoold=as.data.frame(read.csv("motu3/SP_new_old.csv",row.names = 1))
 rownames(newtoold)=newtoold$new
 
-fdata=as.data.frame(read.xlsx("6803/RAdata_motu3_7562samples_newsp_20250629.xlsx",rowNames = T,check.names = F,sep.names = " "))
+fdata=as.data.frame(read.xlsx("motu3_RA.xlsx",rowNames = T,check.names = F,sep.names = " "))
 fdata =fdata[, colnames(fdata) != "Unassigned species", drop = FALSE]
 fdata=fdata[rownames(metadata),]
 fdata=fdata[,(colSums(fdata>0)/nrow(fdata))>0.025]
@@ -76,4 +76,4 @@ stopCluster(cl)
 
 
 # Export the results table
-write.csv(signif_table,"cytokine_vs_sp_spearman_1740_20260210.csv",row.names = F)
+write.csv(signif_table,"cytokine_vs_sp_spearman.csv",row.names = F)
