@@ -11,6 +11,7 @@ suppressPackageStartupMessages({
   library(future.apply)
 })
 
+# Load data and prepare host/MADE features
 SEED <- 123
 OUTER_FOLDS <- 10
 INNER_FOLDS <- 10
@@ -88,6 +89,8 @@ X_host <- matrix(
 X_host[rownames(host_design_complete), ] <-
   host_design_complete
 
+
+# Define helper functions for folds, scaling, AUC, and logistic fits
 make_folds <- function(y, k, seed) {
   set.seed(seed)
 
@@ -167,6 +170,7 @@ fit_logistic_model <- function(
   )
 }
 
+# Run nested cross-validation for one outcome
 run_outcome <- function(outcome) {
   y_all <- as.numeric(metadata[[outcome]])
   names(y_all) <- rownames(metadata)
@@ -318,6 +322,7 @@ run_outcome <- function(outcome) {
     )
   }
 
+# Evaluate pooled AUCs for each model
   made_auc <- data.frame(
     outcome = outcome,
     model = "MADE only",
@@ -351,6 +356,7 @@ run_outcome <- function(outcome) {
     })
   )
 
+# Compare models with paired DeLong tests
   comparisons <- list(
     c("Host only", "MADE only"),
     c("Host only", "Host + MADE"),
@@ -413,6 +419,8 @@ plan(
   workers = N_CORES
 )
 
+
+# Aggregate results across outcomes and save files
 results <- future_lapply(
   outcomes,
   run_outcome,

@@ -1,9 +1,12 @@
+# This script tests Spearman correlations between microbial features and cytokines
+# using matched samples and parallel computation.
 
 library("openxlsx")
 library(doParallel)
 library(foreach)
 library(ppcor)
 
+# Load cytokine, metadata, mapping, and abundance data
 cytokine=as.data.frame(read.xlsx("Cytokine.xlsx",rowNames = T,check.names = F,sep.names = " ",sheet = 1))
 rownames(cytokine)=cytokine$METAF
 
@@ -20,6 +23,8 @@ cytokine <- modify_rownames(cytokine)
 
 cytokine=cytokine[,c(-1,-2,-3)]
 
+
+# Filter samples and features, then run parallel Spearman tests.
 metadata=as.data.frame(read.csv("meta.atc.filter.csv"))
 rownames(metadata)=metadata$METAF
 
@@ -68,4 +73,7 @@ local_results
 }
 
 stopCluster(cl)
+
+
+# Export the results table
 write.csv(signif_table,"cytokine_vs_sp_spearman_1740_20260210.csv",row.names = F)

@@ -3,6 +3,7 @@
 
 library(openxlsx)
 
+# Load metadata, abundance, and feature maps
 METADATA_FILE <- "data/longitudinal_metadata.xlsx"
 ABUNDANCE_FILE <- "data/motu_abundance.tsv"
 FEATURE_MAP_FILE <- "data/feature_name_map.csv"
@@ -24,6 +25,7 @@ colnames(abundance) <- c(colnames(abundance)[-1], "remove")
 abundance <- as.data.frame(t(abundance[, -ncol(abundance)]))
 abundance <- abundance / rowSums(abundance)
 
+# Align samples/features and prepare longitudinal data
 feature_map <- read.csv(
   FEATURE_MAP_FILE,
   row.names = 1,
@@ -88,6 +90,7 @@ change_variables <- colnames(metadata)[70:97]
 
 rownames(feature_map) <- feature_map$old
 
+# Run linear regression and Spearman tests for change
 lm_results <- do.call(
   rbind,
   lapply(seq_along(change_variables), function(i) {
@@ -156,6 +159,7 @@ write.csv(
   row.names = FALSE
 )
 
+# Run paired Wilcoxon tests and save all results
 wilcoxon_results <- do.call(
   rbind,
   lapply(seq_along(change_variables), function(i) {

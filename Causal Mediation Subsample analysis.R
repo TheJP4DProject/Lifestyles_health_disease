@@ -5,6 +5,8 @@
 
 library(mediation)
 
+# Set parameters, file paths, and analysis targets
+
 set.seed(123)
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -24,6 +26,8 @@ SAMPLING_SEED <- 123
 MEDIATION_SEED <- 123
 
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+# Load and preprocess metadata, abundance, and MaAsLin results
 
 metadata <- read.csv(
   METADATA_FILE,
@@ -74,6 +78,8 @@ maaslin <- read.csv(
   check.names = FALSE
 )
 
+
+# Select shared significant features and define the analysis dataset
 exposure_features <- maaslin[
   maaslin$metadata == exposure &
     maaslin$qval < 0.1,
@@ -96,6 +102,7 @@ selected_features <- intersect(
 selected_features <- colnames(abundance)[
   colnames(abundance) %in% selected_features
 ]
+
 
 abundance <- abundance[, selected_features, drop = FALSE]
 
@@ -132,6 +139,8 @@ if (nrow(case_data) <= TARGET_CASES) {
   quit(save = "no", status = 0)
 }
 
+
+# Generate balanced case-sampling sets for sensitivity analysis
 case_data$SexGroup <- as.integer(case_data$ADJ2)
 case_data$AgeGroup <- as.integer(case_data$ADJ1 >= 65)
 case_data$BMIGroup <- as.integer(case_data$ADJ3 >= 25)
@@ -291,6 +300,7 @@ sampling_plan <- do.call(
   })
 )
 
+# Save sampling balance metrics and the sampling plan
 write.csv(
   selected_sampling_scores,
   file.path(
@@ -362,6 +372,8 @@ get_maaslin_value <- function(data, feature, column) {
   if (length(value) == 0) NA_real_ else as.numeric(value[1])
 }
 
+
+# Run mediation analysis across sampled sets and features
 all_results <- lapply(seq_along(sampling_sets), function(set_index) {
   selected_ids <- c(
     control_ids,
@@ -476,6 +488,7 @@ all_results <- lapply(seq_along(sampling_sets), function(set_index) {
 
 results <- do.call(rbind, all_results)
 
+# Save the final results
 write.csv(
   results,
   file.path(

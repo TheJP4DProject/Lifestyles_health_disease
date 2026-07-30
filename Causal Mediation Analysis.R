@@ -5,6 +5,7 @@ library(openxlsx)
 library(tidyr)
 library(stringr)
 
+# Load metadata and feature data, and set the exposure/disease pair from command-line arguments
 args <- commandArgs(trailingOnly = TRUE)
 
 key_idx <- as.numeric(args[1])
@@ -35,7 +36,7 @@ fdata = as.data.frame(log10(fdata))
 maa = read.csv("6803_motusp_MAA_8F_20260115.csv")
 
 
-
+# Select features significant for both exposure and disease, then build mediation data
 food_maaslin = maa[maa$metadata == key,]
 food_maaslin = food_maaslin[food_maaslin$qval < 0.1,]
 
@@ -53,6 +54,8 @@ cat("Feature number:", ncol(data), "\n")
 
 result_list <- list()
 
+
+# Fit mediation models and estimate the causal mediation effect
 for (num in 1:ncol(data)) {
 
 sp_analyzed = sp_name[num]

@@ -1,11 +1,18 @@
+# This script performs KEGG enrichment analysis for KO features associated with each metadata variable.
+# Significantly up- and down-regulated KOs are analyzed separately and summarized across variables.
+
 library(openxlsx)
 library(clusterProfiler)
 library(tidyr)
 library(tidyverse)
+
+# Load KO association results
 mas_all_metadata=as.data.frame(read.csv("./6803_KO_MAA_8F_20260115.csv"))
 key=unique(mas_all_metadata$metadata)
 key1=key[1:28]
 
+
+# Run KEGG enrichment analyses
 result=NULL
 for (meta in unique(mas_all_metadata$metadata)){
   KO_up <- mas_all_metadata %>% filter(metadata==meta, coef>0, qval<0.1) %>% pull(feature)

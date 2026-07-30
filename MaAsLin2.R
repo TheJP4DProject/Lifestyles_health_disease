@@ -1,8 +1,11 @@
+# This script runs MaAsLin2 association analyses for MO, mOTU, and KO features against metadata variables.
+
 library(vegan)
 library(openxlsx)
 library(Maaslin2)
 library(doParallel)
 
+# Load metadata and define analysis variables
 metadata=as.data.frame(read.csv("meta.atc.filter.csv"))
 
 fixkey <- colnames(metadata)[c(3:5,51:55)]
@@ -10,6 +13,7 @@ diskey <- colnames(metadata)[6:50]
 
 rownames(metadata)=metadata$METAF
 
+# Prepare MO abundance data and run MaAsLin2
 fdata=as.data.frame(read.csv("mo_7562samples_20250428.txt",sep="\t",check.names=F,row.names=1))
 colnames(fdata)=c(colnames(fdata)[2:ncol(fdata)],"test")
 fdata=fdata[,-ncol(fdata)]
@@ -99,6 +103,7 @@ pr=pr[,c(-3,-5,-7)]
 write.csv(pr,"./6803_MO_MAA_8F_20260115.csv",row.names=F)
 
 
+# Prepare mOTU abundance data and run MaAsLin2
 new_old_name=as.data.frame(read.csv("SP_new_old.csv",row.names=1))
 rownames(new_old_name)=new_old_name$new
 
@@ -172,7 +177,7 @@ pr=unique(pr)
 write.csv(pr,"./6803_motusp_MAA_8F_20260115.csv",row.names=F)
 
 
-
+# Prepare KO abundance data and run MaAsLin2
 fdata=as.data.frame(read.xlsx("ko_7562samples_20250428.xlsx",rowNames=T,check.names=F,sep.names=" "))
 fdata=as.data.frame(t(fdata))
 
@@ -237,6 +242,7 @@ tempp
 }
 
 stopCluster(cl)
+
 pr <- do.call(rbind, parallel_results)
 pr=pr[,c(-3,-5,-7)]
 pr=unique(pr)

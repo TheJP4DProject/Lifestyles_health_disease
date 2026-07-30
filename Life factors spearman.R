@@ -1,3 +1,5 @@
+# This script computes pairwise Spearman correlations among metadata variables.
+
 library(openxlsx)
 library(parallel)
 

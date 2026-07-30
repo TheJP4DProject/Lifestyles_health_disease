@@ -9,6 +9,7 @@ library(compositions)
 
 setwd(".")
 
+# Load metadata and species data; prepare covariates
 metadata <- as.data.frame(read.csv("meta.atc.filter.csv"))
 metadata <- metadata[!is.na(metadata$METAF),]
 
@@ -23,6 +24,8 @@ motu <- as.data.frame(read.xlsx("RAdata_motu3_7562samples_newsp_20250629.xlsx",
                                 sep.names = " "))
 motu <- motu[rownames(metadata), , drop = FALSE]
 
+
+# Define preprocessing helpers and model setup
 modify_rownames <- function(df) {
   rownames(df) <- sapply(rownames(df), function(x) {
     v <- suppressWarnings(as.numeric(x))
@@ -146,6 +149,7 @@ build_pf_for_def <- function(def, X_model) {
   pf
 }
 
+# Run species-only models for each outcome in parallel
 outcome_cols <- 34:50
 outcome_names <- colnames(metadata)[outcome_cols]
 
@@ -242,5 +246,4 @@ results <- foreach(task = task_list,
 }
 
 stopCluster(cl)
-
 cat("DONE\n")
