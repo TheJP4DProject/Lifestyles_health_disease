@@ -1,4 +1,4 @@
-# This script runs MaAsLin2 association analyses for MO, mOTU, and KO features against metadata variables.
+# This script runs MaAsLin2 association analyses for MO, mOTU, and KO features against metadata variables
 
 library(vegan)
 library(openxlsx)
