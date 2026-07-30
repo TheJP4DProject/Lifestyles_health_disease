@@ -1,3 +1,5 @@
+# Compare each species with each cytokine by Spearman correlation,
+# and save the association results with renamed species labels.
 
 library("openxlsx")
 library(doParallel)
@@ -14,7 +16,7 @@ rownames(metadata)=metadata$METAF
 newtoold=as.data.frame(read.csv("SP_new_old.csv",row.names = 1))
 rownames(newtoold)=newtoold$new
 
-fdata=as.data.frame(read.xlsx("RAdata_motu3_7562samples_newsp_20250629.xlsx",rowNames = T,check.names = F,sep.names = " "))
+fdata=as.data.frame(read.xlsx("motu3_RA.xlsx",rowNames = T,check.names = F,sep.names = " "))
 fdata =fdata[, colnames(fdata) != "Unassigned species", drop = FALSE]
 fdata=fdata[rownames(metadata),]
 fdata=fdata[,(colSums(fdata>0)/nrow(fdata))>0.025]
@@ -57,4 +59,4 @@ local_results
 }
 
 stopCluster(cl)
-write.csv(signif_table,"metabo_vs_sp_spearman_1713_20260210.csv",row.names = F)
+write.csv(signif_table,"metabolites_vs_sp_spearman.csv",row.names = F)
