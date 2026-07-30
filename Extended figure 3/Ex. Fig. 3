@@ -1,3 +1,5 @@
+# Build a composite heatmap linking species to lifestyle/disease associations,
+# SCFA correlations, and cytokine correlations, with taxonomy and oral-derived annotations.
 
 rm(list=ls())
 set.seed(100)
@@ -8,13 +10,15 @@ library(openxlsx)
 library(reshape2)
 par(family="Helvetica")
 
-SP_list <- read.xlsx("Supplementary Tables_260405.xlsx",
+# Read inputs and prepare the association tables
+SP_list <- read.xlsx("Supplementary Tables.xlsx",
 sheet="S13DOriSPSCFACyto",
 check.names = F,
 sep.names = " ")
 
 SP_df <- data.frame(feature = SP_list$GTDB)
 
+# Sort species by taxonomy and build row/column annotations
 tax_table <- read.xlsx("mOTUs_3.0.0_GTDB_tax.xlsx", sheet=1)
 colnames(tax_table)[1] <- "ref_id"
 tax_table$motu_id <- str_extract(tax_table$ref_id, "(?<=v3_)\d{5}")
@@ -240,6 +244,7 @@ width = ncol(maa_coef) * unit(2,"mm"),
 heatmap_legend_param = legend_param_maa,
 cell_fun = make_cell_maa(maa_qval, maa_pval))
 
+# Format the MAA, SCFA, and cytokine heatmaps
 metabo_rho <- data.frame(
 feature = SP_list$GTDB,
 Butyrate = SP_list$Butyrate_rho,
@@ -405,6 +410,7 @@ list(legend_direction="horizontal",
 at=c(-0.1,-0.05,0,0.05,0.1))),
 cell_fun = make_cell_spearman(cytokine_fdr, cytokine_pval))
 
+# Combine the heatmaps and export the final PDF
 pdf("sfig3_Dis_Ori_sup.pdf", width=8.27, height=11.69, family="Helvetica")
 draw(hm_maa + hm_metabo + hm_cyto,
 merge_legend = TRUE,
