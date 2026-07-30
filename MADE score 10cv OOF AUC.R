@@ -3,6 +3,8 @@
 # The prevalence filter is defined once on the full dataset and reused across
 # all outer folds.
 
+# Load packages and set constants
+
 suppressPackageStartupMessages({
   library(glmnet)
   library(pROC)
@@ -18,6 +20,8 @@ OUTER_FOLDS <- 10
 INNER_FOLDS <- 10
 N_CORES <- 10
 MIN_PREVALENCE <- 0.025
+
+# Read metadata, abundance data, and define preprocessing utilities
 
 METADATA_FILE <- "data/metadata.csv"
 ABUNDANCE_FILE <- "data/motu_abundance.xlsx"
@@ -105,6 +109,7 @@ calculate_auc <- function(y, prediction) {
   )
 }
 
+# Run nested cross-validation and evaluate each outcome
 run_outcome <- function(outcome) {
   y <- as.numeric(metadata[[outcome]])
   sample_ids <- rownames(metadata)[!is.na(y)]
@@ -254,6 +259,7 @@ run_outcome <- function(outcome) {
   )
 }
 
+# Save the evaluation results
 plan(
   multisession,
   workers = N_CORES
