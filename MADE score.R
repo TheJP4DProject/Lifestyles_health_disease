@@ -1,3 +1,6 @@
+# Build a species-only microbial predictor for each outcome using glmnet,
+# evaluate model performance by AUC, and save per-outcome results and scores.
+
 library(doParallel)
 library(foreach)
 library(glmnet)
