@@ -1,3 +1,7 @@
+# This script performs causal mediation analysis for each microbial feature
+# associated with both the selected exposure and disease. It estimates direct,
+# indirect, and total effects, and outputs the results as a CSV file.
+
 library(mediation)
 library(readxl)
 library(CMAverse)
