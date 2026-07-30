@@ -1,3 +1,6 @@
+# Build a bacteria association network and summary bar plots for each exposure,
+# then export the figures and source tables.
+
 library(openxlsx)
 library(dplyr)
 library(tidyr)
@@ -14,7 +17,7 @@ return(x)
 result <- read.csv("network/result_with_cytokine_metabo_Coffee.csv",
 stringsAsFactors = FALSE)
 
-
+# Prepare network edges and plot the interaction graph
 edges <- result %>%
 mutate(
 Source = clean_names(Starter_bacteria),
@@ -60,6 +63,7 @@ ggtitle(tr)
 return(p)
 }
 
+# Summarize association directions and plot the first bar chart set
 types <- c("No association","Negative","Positive")
 
 bar_data <- result %>%
@@ -133,6 +137,7 @@ write.csv(bar_out,
 file = "network_source_data_all.csv",
 row.names = FALSE)
 
+# Build the butyrate-positive summary, plot the second bar chart set, and export source data.
 bar_data2 <- result %>%
 mutate(
 type = case_when(
