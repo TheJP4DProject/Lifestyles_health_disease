@@ -1,3 +1,5 @@
+# Build a composite heatmap linking species to lifestyle/health associations, SCFA correlations, and cytokine correlations, with taxonomy and oral-derived annotations.
+
 rm(list=ls())
 set.seed(100)
 
@@ -9,8 +11,9 @@ library(reshape2)
 
 par(family="Helvetica")
 
+# Read inputs and prepare taxonomy and association tables
 SP_list <- read.xlsx(
-"Supplementary Tables_260405.xlsx",
+"Supplementary Tables.xlsx",
 sheet="S12HOriSPSCFACyto",
 check.names = F,
 sep.names = " "
@@ -18,6 +21,7 @@ sep.names = " "
 
 SP_df <- data.frame(feature = SP_list$GTDB)
 
+# Reorder species by taxonomy and build row/column annotations
 tax_table <- read.xlsx(
 "mOTUs_3.0.0_GTDB_tax.xlsx",
 sheet=1
@@ -33,7 +37,7 @@ tax_table$Genus_clean <- gsub("^g__","", tax_table$Genus)
 tax_table$Species_clean<- gsub("^s__","", tax_table$Species)
 
 maa_raw <- read.xlsx(
-"stable/Supplementary Tables_260405.xlsx",
+"stable/Supplementary Tables.xlsx",
 sheet="S6",
 check.names = F,
 sep.names = " "
@@ -289,6 +293,7 @@ heatmap_legend_param = legend_param_maa,
 cell_fun = make_cell_maa(maa_qval, maa_pval)
 )
 
+# Format MAA, SCFA, and cytokine heatmaps with significance markers
 metabo_rho <- data.frame(
 feature = SP_list$GTDB,
 Butyrate = SP_list$Butyrate_rho,
@@ -454,6 +459,7 @@ at=c(-0.1,-0.05,0,0.05,0.1))),
 cell_fun = make_cell_spearman(cytokine_fdr, cytokine_pval)
 )
 
+# Combine heatmaps and export the final PDF figure
 pdf("sfig2_Health_Ori_sup.pdf", width=8.27, height=11.69, family="Helvetica")
 draw(hm_maa + hm_metabo + hm_cyto,
 merge_legend = TRUE,
