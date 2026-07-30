@@ -7,7 +7,6 @@ library(foreach)
 library(doParallel)
 
 set.seed(123)
-
 num_cores <- 2
 
 # Load data and define exposure/outcome
