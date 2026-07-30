@@ -26,8 +26,8 @@ metadata <- read.xlsx(METADATA_FILE, check.names = FALSE)
 metadata <- metadata[, -c(2, 3)]
 rownames(metadata) <- metadata[[1]]
 
-fixkey <- colnames(metadata)[2:11]
-test_cols <- colnames(metadata)[12:72]
+fixkey <- colnames(metadata)[2:9]
+test_cols <- colnames(metadata)[10:70]
 
 depth <- read.table(
   DEPTH_FILE,
