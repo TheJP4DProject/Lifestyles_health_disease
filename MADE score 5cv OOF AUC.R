@@ -19,7 +19,6 @@ INNER_FOLDS <- 10
 N_CORES <- 10
 MIN_PREVALENCE <- 0.025
 
-
 # Load data and define common preprocessing
 METADATA_FILE <- "data/metadata.csv"
 ABUNDANCE_FILE <- "data/motu_abundance.xlsx"
