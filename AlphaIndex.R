@@ -14,7 +14,6 @@ OUTPUT_DIR <- "results/alpha_diversity"
 
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-
 # Function to compute partial Spearman correlation with covariate adjustment
 partial_spearman <- function(x, y, covariates) {
   dat <- na.omit(data.frame(x, y, covariates))
