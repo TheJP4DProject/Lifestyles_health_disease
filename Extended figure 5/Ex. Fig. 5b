@@ -1,3 +1,6 @@
+# Compare the causal mediation effects of Vegetables, Fruits, and Coffee, 
+# highlight Butyrate-associated bacteria, and export the scatterplots and source data.
+
 library(openxlsx)
 library(ComplexHeatmap)
 library(circlize)
@@ -11,7 +14,8 @@ library(ggtext)
 plot_list=list()
 set.seed(123)
 
-causal <- read.xlsx("Supplementary Tables_260405.xlsx",
+# Load data and select the causal mediation results to compare
+causal <- read.xlsx("Supplementary Tables.xlsx",
 sheet="S9 MOTU",
 check.names = F,
 sep.names = " ")
@@ -24,14 +28,14 @@ causal_sig <- causal %>%
 filter(Exposure %in% key,
 Outcome =="General health")
 
-maa=read.xlsx("Supplementary Tables_260405.xlsx",
+maa=read.xlsx("Supplementary Tables.xlsx",
 sheet="S6",
 check.names = F,
 sep.names = " ")
 
 plot_list=NULL
 
-scfa=read.csv("metabo_vs_sp_spearman_1713.csv")
+scfa=read.csv("metabolites_sp_spearman.csv")
 scfa=scfa[scfa$Metabo=="Butyrate",]
 scfa=scfa[scfa$P<0.05,]
 scfa=scfa[scfa$Rho>0,]
@@ -39,6 +43,7 @@ scfa=scfa[scfa$Rho>0,]
 r=NULL
 sp=NULL
 
+# Build scatterplots for each exposure versus Coffee and save the figure
 for (i in 1:(length(key)-1)){
 undocausal=causal_sig[causal_sig$Exposure==key[i],]
 undo=unique(undocausal$Mediater)
@@ -109,6 +114,7 @@ pdf("Sfig5b.pdf", width = 9, height = 2)
 grid.arrange(grobs = plot_list, ncol = 2)
 dev.off()
 
+# Collect the plotted data and write it out as a CSV source table
 source_data_list <- list()
 
 for (i in 1:(length(key)-1)){
