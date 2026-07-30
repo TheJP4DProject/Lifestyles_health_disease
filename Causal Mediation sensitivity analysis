@@ -2,18 +2,19 @@
 # Each model uses the same base covariates and a predefined set of additional
 # adjustment variables. Results are combined across models and FDR-adjusted.
 
+# Load packages and set paths
 library(mediation)
 library(foreach)
 library(doParallel)
 
 set.seed(123)
-
 num_cores <- 2
 
 args <- commandArgs(trailingOnly = TRUE)
 exposure_index <- as.numeric(args[1])
 outcome_index <- as.numeric(args[2])
 
+# Read metadata and abundance data, then select the target exposure and outcome
 BASE_RESULT_FILE <- "data/base_mediation_results.csv"
 FINAL_NAME_FILE <- "data/final_name_reference.csv"
 METADATA_FILE <- "data/metadata.csv"
@@ -91,6 +92,7 @@ if (length(outcome_match) > 0) {
   outcome_output <- outcome_match[1]
 }
 
+# Define mediation models and run analyses in parallel
 base_covariates <- c(
   "ADJ1", "ADJ2", "ADJ3",
   "ADJ4", "ADJ5", "ADJ6",
@@ -375,6 +377,7 @@ model_results <- foreach(
 
 parallel::stopCluster(cluster)
 
+# Adjust p-values and write the final results
 results <- cbind(
   base_results,
   model_results
