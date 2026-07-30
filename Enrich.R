@@ -7,7 +7,7 @@ library(tidyr)
 library(tidyverse)
 
 # Load KO association results
-mas_all_metadata=as.data.frame(read.csv("./6803_KO_MAA_8F_20260115.csv"))
+mas_all_metadata=as.data.frame(read.csv("./KO_MAA.csv"))
 key=unique(mas_all_metadata$metadata)
 key1=key[1:28]
 
@@ -39,4 +39,4 @@ for (meta in unique(mas_all_metadata$metadata)){
   )
   result=rbind(result,ko_up,ko_down)
 }
-write.csv(result,"KEGGID_enrich_20260115.csv")
+write.csv(result,"KEGGID_enrich.csv")
