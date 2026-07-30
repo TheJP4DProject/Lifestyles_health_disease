@@ -1,3 +1,6 @@
+# Compare JP and US causal indirect effects for each exposure and
+# save the scatterplots as a multi-panel PDF.
+
 setwd(".")
 
 library(ggplot2)
@@ -8,7 +11,8 @@ library(ggtext)
 library(openxlsx)
 set.seed(123)
 
-df <- read.xlsx("Supplementary Tables_260405.xlsx",
+# Load data and split by exposure
+df <- read.xlsx("Supplementary Tables.xlsx",
 sheet = "USJP_IBD_causal",
 check.names = F,
 sep.names = " ")
@@ -17,6 +21,7 @@ split_data <- split(df, df$Exposure)
 
 plot_list <- list()
 
+# Build one scatterplot per exposure and annotate selected species
 for (i in seq_along(split_data)) {
 
 all_data <- split_data[[i]]
@@ -125,6 +130,7 @@ hjust = 0, vjust = 1, size = 5, color = "black"
 plot_list[[i]] <- p
 }
 
+# Arrange all plots and export the final PDF
 pdf("Sfig4b.pdf",
 width = 27, height = 24)
 
