@@ -12,7 +12,6 @@ REFERENCE_METADATA_FILE <- "data/reference_metadata.csv"
 OUTPUT_DIR <- "results/longitudinal_analysis"
 
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
-
 metadata <- read.xlsx(METADATA_FILE)
 
 abundance <- read.csv(
