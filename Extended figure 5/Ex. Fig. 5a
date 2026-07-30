@@ -1,3 +1,5 @@
+# Build a heatmap of species-level Spearman correlations for five KO functions and export the figure as PDF.
+
 library(ComplexHeatmap)
 library(circlize)
 library(data.table)
@@ -5,7 +7,7 @@ library(grid)
 library(stringr)
 library(openxlsx)
 
-df <- read.xlsx("Supplementary Tables_260405.xlsx",
+df <- read.xlsx("Supplementary Tables.xlsx",
 sheet="Sfig.6A_data",
 check.names = F,
 sep.names = " ")
