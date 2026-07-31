@@ -1,3 +1,5 @@
+# Build a Sankey diagram linking the selected microbial species mediators to
+# lifestyle exposures and disease outcomes, then export the network and source table.
 
 rm(list=ls())
 set.seed(100)
@@ -9,8 +11,7 @@ library(htmlwidgets)
 library(htmltools)
 
 
-xlsx_file <- "Supplementary Tables_260405.xlsx"
-
+xlsx_file <- "Supplementary Tables.xlsx"
 
 ordered_df <- data.frame(
   group = c(
@@ -51,7 +52,7 @@ Disease_list <- data.frame(
   )
 )
 
-
+# Read the mediation table and keep the target species and exposures
 causal <- read.xlsx(xlsx_file,
                     sheet = "S9 MOTU",
                     check.names = FALSE)
@@ -101,7 +102,7 @@ nodes <- rbind(nodes, data.frame(
   group = ifelse(temp_dis=="General health","Health","Disease")
 ))
 
-# display
+# Display
 nodes$display_tag <- nodes$tag
 
 
