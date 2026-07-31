@@ -1,3 +1,5 @@
+# Build a species-by-KO Spearman correlation heatmap and export the figure as a PDF.
+
 library(tidyverse)
 library(ComplexHeatmap)
 library(circlize)
@@ -25,7 +27,8 @@ sp_list <- c(
 "Faecalimonas phoceensis [ID:03689]"
 )
 
-cor_df <- read.xlsx("stable/Supplementary Tables_260405.xlsx",
+# Load the correlation table and reshape it into matrices.
+cor_df <- read.xlsx("stable/Supplementary Tables.xlsx",
 sheet="Fig.5C_data",
 check.names = F,
 sep.names = " ")
@@ -83,6 +86,7 @@ column_to_rownames("GTDB") %>%
 .[rownames(mat_rho), colnames(mat_rho), drop=FALSE] %>%
 as.matrix()
 
+# Clean labels and assign KO names for display
 clean_rownames <- function(mat){
 rownames(mat) <- gsub("[ID:(\d+)\]", "\1", rownames(mat))
 mat
@@ -96,6 +100,7 @@ colnames(mat_rho) <- ko_labels[colnames(mat_rho)]
 colnames(mat_p) <- ko_labels[colnames(mat_p)]
 colnames(mat_q) <- ko_labels[colnames(mat_q)]
 
+# Define the heatmap colors and significance markers
 col_breaks_rho <- c(-0.5,-0.3,-0.1,0,0.1,0.3,0.5)
 
 col_fun_rho <- colorRamp2(
@@ -145,6 +150,7 @@ heatmap_legend_param = legend_param_rho,
 cell_fun = make_cell_fun_spearman(mat_q, mat_p)
 )
 
+# Draw the heatmap and save the PDF
 pdf("fig5C.pdf", width=8.27, height=11.69, family="Helvetica")
 
 draw(hm_main, padding = unit(c(5,40,15,2),"mm"))
