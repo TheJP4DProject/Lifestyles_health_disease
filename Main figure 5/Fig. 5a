@@ -1,3 +1,6 @@
+# Create faceted bubble plots for glycosaminoglycan and other glycan degradation pathways,
+# highlighting alcohol-associated factors, and export the figure and source table.
+
 library(ggplot2)
 library(dplyr)
 library(ggrepel)
@@ -5,7 +8,8 @@ library(openxlsx)
 library(scales)
 library(patchwork)
 
-df <- read.xlsx("Supplementary Tables_260405.xlsx",
+# Read the enrichment table and standardize the factor names
+df <- read.xlsx("Supplementary Tables.xlsx",
                 sheet="KEGGID_enrich_20260115_FDR01sel",
                 check.names = F,
                 sep.names = " ")
@@ -43,6 +47,7 @@ name_map <- c(
 df$metadata <- name_map[df$metadata]
 df <- df[df$metadata %in% names(name_map)[1:28], ]
 
+# Filter to the target pathways and prepare plotting variables
 key <- c("Glycosaminoglycan degradation",
          "Other glycan degradation")
 
@@ -60,6 +65,7 @@ plot_df <- df %>%
     label_color = ifelse(metadata == "Alcohol", "#FF69B4", "grey50")
   )
 
+# Build the faceted bubble plot.
 final_plot <- ggplot(plot_df,
                      aes(x = qvalue, y = RichFactor, color = metadata_plot)) +
   geom_point(aes(size = Count), alpha = 0.8) +
