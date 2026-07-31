@@ -1,3 +1,6 @@
+# Build paired heatmaps for the top 20 species showing SCFA and cytokine associations,
+# with significance markers and PDF export.
+
 rm(list = ls())
 set.seed(100)
 
