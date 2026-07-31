@@ -1,3 +1,6 @@
+# Build a Sankey diagram linking physical activity exposures to
+# species mediators and disease outcomes, then save the interactive network as HTML.
+
 library(openxlsx)
 library(tidyverse)
 library(circlize)
@@ -56,7 +59,8 @@ color = c("white", rep("black", 15))
 sankeywidth <- 900
 sankeyheight <- 300
 
-causal <- read.xlsx("stable/Supplementary Tables_260405.xlsx",
+# Load the Sankey input table and keep the target species mediators
+causal <- read.xlsx("stable/Supplementary Tables.xlsx",
 sheet="S9 MOTU",
 check.names = F,
 sep.names = " ")
@@ -90,6 +94,7 @@ condi <- "fig5E_sp"
 
 causal$ExposureClass <- ordered_df[causal$Exposure, ]$annotation
 
+# Construct the node table for exposures, species, and outcomes
 nodes <- data.frame()
 
 temp_factor <- unique(ordered_df[ordered_df$group %in% causal$Exposure, ]$group)
@@ -136,6 +141,7 @@ group = ifelse(temp_dis == "General health", "Health", "Disease")
 
 nodes <- rbind(nodes, temp_nodes)
 
+# Create links from exposures to species and from species to outcomes
 links <- data.frame()
 
 for (i in temp_factor) {
@@ -238,6 +244,7 @@ range_str <- paste0('["', paste(existing_colors, collapse='","'), '"]')
 
 my_color <- paste0('d3.scaleOrdinal().domain(', domain_str, ').range(', range_str, ')')
 
+# Render the Sankey diagram and save the HTML output
 p <- sankeyNetwork(
 Links = links,
 Nodes = nodes,
