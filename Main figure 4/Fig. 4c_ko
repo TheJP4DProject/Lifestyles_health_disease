@@ -1,3 +1,5 @@
+# Build a Sankey diagram linking selected KO mediators to
+# milk/yogurt exposures and disease outcomes, then export the network and source table.
 
 library(openxlsx)
 library(tidyverse)
@@ -45,7 +47,8 @@ Disease_list <- data.frame(
 sankeywidth <- 900
 sankeyheight <- 300
 
-causal <- read.xlsx("Supplementary Tables_260405.xlsx",
+# Read the mediation table and keep the target KOs and exposures
+causal <- read.xlsx("Supplementary Tables.xlsx",
                     sheet = "S11KO",
                     check.names = FALSE)
 
@@ -77,7 +80,7 @@ causal <- causal[causal$Exposure %in% metadata, ]
 
 condi <- "newfig4csankey_ko"
 
-
+# Construct the node table for exposures, KOs, and diseases
 nodes <- data.frame()
 
 temp_factor <- unique(causal$Exposure)
@@ -121,7 +124,7 @@ nodes <- rbind(nodes,
   )
 )
 
-
+# Build the links between exposures, KOs, and diseases
 links <- data.frame()
 
 for(i in temp_factor){
@@ -186,6 +189,7 @@ my_color <- 'd3.scaleOrdinal()
 .domain(["Plus","Minus","all_nodes","Health","Disease"])
 .range(["#eca19c","#9cc4ea","black","white","black"])'
 
+# Draw the Sankey diagram and save the output files
 p <- sankeyNetwork(
   Links = links,
   Nodes = nodes,
