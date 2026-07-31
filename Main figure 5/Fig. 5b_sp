@@ -1,3 +1,5 @@
+# Build a Sankey diagram linking selected species mediators to
+# alcohol exposure and disease outcomes, then export the network and source table.
 
 library(openxlsx)
 library(tidyverse)
@@ -62,9 +64,9 @@ sankeywidth  <- 900
 sankeyheight <- 300
 ######################
 
-
+# Read the mediation table and keep the target species and exposures
 causal <- read.xlsx(
-  "./Supplementary Tables_260405.xlsx",
+  "./Supplementary Tables.xlsx",
   sheet = "S9 MOTU",
   check.names = FALSE,
   sep.names = " "
@@ -259,6 +261,7 @@ my_color <- paste0(
   ')'
 )
 
+# Draw the Sankey diagram and save the HTML and CSV outputs
 p <- sankeyNetwork(
   Links = links, Nodes = nodes,
   Source = "ids", Target = "idt",
