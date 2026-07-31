@@ -1,3 +1,6 @@
+# Build an interaction network and exposure-wise bar summaries for species associations,
+# then export the figures and source tables.
+
 library(openxlsx)
 library(dplyr)
 library(tidyr)
@@ -14,7 +17,7 @@ return(x)
 result <- read.csv("network/result_with_cytokine_metabo_NPY.csv",
 stringsAsFactors = FALSE)
 
-
+# Prepare the network plot and the first bar summary for all association types
 edges <- result %>%
 mutate(
 Source = clean_names(Starter_bacteria),
@@ -133,6 +136,7 @@ write.csv(bar_out,
 file = "network_source_data_all.csv",
 row.names = FALSE)
 
+# Prepare the Butyrate-focused summary, plot the second bar chart set, and export the source table
 bar_data2 <- result %>%
 mutate(
 type = case_when(
