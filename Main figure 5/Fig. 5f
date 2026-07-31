@@ -1,3 +1,5 @@
+# Build a multi-panel heatmap of Spearman correlations between species and mobile elements,
+# SCFAs, and cytokines, then export the figure and source table.
 
 rm(list = ls())
 set.seed(100)
@@ -11,7 +13,8 @@ library(openxlsx)
 
 par(family = "Helvetica")
 
-plot_df <- read.xlsx("Supplementary Tables_260405.xlsx",
+# Load the source table and define the species, mobile elements, SCFAs, and cytokines.
+plot_df <- read.xlsx("Supplementary Tables.xlsx",
                      sheet = "Fig.5F_data",
                      check.names = F,
                      sep.names = " ")
@@ -33,6 +36,7 @@ cytokine_list <- c(
 
 plot_df$SP <- gsub("\\[ID:(\\d+)\\]", "\\1", plot_df$GTDB)
 
+# Convert the selected columns into matrices and assign display labels
 to_mat <- function(df, row_col, value_cols) {
   mat <- df[, c(row_col, value_cols), drop = FALSE] %>%
     column_to_rownames(row_col) %>%
@@ -75,6 +79,7 @@ colnames(hm_rho_2) <- cytokine_list
 colnames(hm_pval_2) <- cytokine_list
 colnames(hm_fdr_2) <- cytokine_list
 
+# Define heatmap annotations, colors, and cell significance markers
 top_anno_mo <- HeatmapAnnotation(
   MO = anno_block(
     gp = gpar(fill = "gray80", col = "gray80"),
@@ -205,6 +210,7 @@ hm3 <- Heatmap(
   }
 )
 
+# Draw the combined heatmap panel and save the PDF
 pdf("fig5F.pdf", family = "Helvetica", width = 10, height = 10)
 
 draw(
