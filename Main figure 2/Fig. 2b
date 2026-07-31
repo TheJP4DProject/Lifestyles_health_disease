@@ -1,3 +1,6 @@
+# Plot the counts of positive and negative mediation effects
+# across exposures and outcomes, grouped by lifestyle class.
+
 rm(list = ls())
 set.seed(100)
 
