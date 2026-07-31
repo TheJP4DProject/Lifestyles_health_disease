@@ -1,3 +1,6 @@
+# Build a Sankey diagram linking the top 20 microbial species to lifestyle exposures
+# and disease outcomes, then export the network and source tables.
+
 rm(list = ls())
 set.seed(100)
 
