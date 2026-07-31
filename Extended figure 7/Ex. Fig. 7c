@@ -1,3 +1,5 @@
+# Test whether selected genera are enriched among milk/yogurt- or
+# starch-associated species, then plot genus-level comparisons.
 
 library(tidyverse)
 library(ComplexHeatmap)
@@ -11,6 +13,7 @@ cat("Total species in orient:", orient_total, "\n\n")
 milk_yogurt_foods <- c("Milk", "Yogurt")
 starch_foods <- c("Soft drinks", "Rice")
 
+# Prepare the causal species table and annotate genus and exposure group hits
 temp <- causal_sig[causal_sig$Exposure %in% c(milk_yogurt_foods, starch_foods), ]
 temp <- temp[temp$Outcome != "General health", ]
 
@@ -43,6 +46,7 @@ nrow()
 causal_sp_annotation$is_st[i] <- (st_hit > 0)
 }
 
+# Run Fisher's exact tests for each genus and save the summary table
 genus_groups <- c("Streptococcus", "Actinomyces", "Rothia",
 "Veillonella", "Lactobacillus", "Bifidobacterium")
 
@@ -70,6 +74,7 @@ fisher_results$padj <- p.adjust(fisher_results$pvalue, method="BH")
 write.csv(fisher_results, "fisher_results.csv", row.names=FALSE)
 print(fisher_results)
 
+# Prepare plotting data for the selected genera
 plot_df <- fisher_results[fisher_results$genus %in% c("Streptococcus", "Lactobacillus", "Bifidobacterium"), ]
 plot_df$my_pct <- plot_df$my_g / (plot_df$my_g + plot_df$my_ng) * 100
 plot_df$st_pct <- plot_df$st_g / (plot_df$st_g + plot_df$st_ng) * 100
@@ -111,6 +116,7 @@ axis.text.y = element_text(size=5),
 axis.title.y = element_text(size=5))
 }
 
+# Draw the genus-level bar plots and export the final figure
 p1 <- plot_one_genus(plot_df, "Streptococcus")
 p2 <- plot_one_genus(plot_df, "Lactobacillus")
 p3 <- plot_one_genus(plot_df, "Bifidobacterium")
