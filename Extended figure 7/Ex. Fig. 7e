@@ -1,3 +1,5 @@
+# Build a species-by-KO Spearman correlation heatmap with significance markers and export it as a PDF.
+
 library(tidyverse)
 library(ComplexHeatmap)
 library(circlize)
@@ -11,7 +13,8 @@ CELL <- 2.5
 FS <- 5
 FS_SIG <- 5
 
-sp_list_df <- read.xlsx("Supplementary Tables_260405.xlsx", sheet="Sfig.8_data")
+# Load the species table and prepare the KO matrices
+sp_list_df <- read.xlsx("Supplementary Tables.xlsx", sheet="Sfig.8_data")
 sp_list_df$ID5 <- str_pad(as.character(sp_list_df$ID), width=5, pad="0")
 sp_split <- factor(sp_list_df$anno, levels=unique(sp_list_df$anno))
 sp_csv <- sp_list_df
@@ -45,6 +48,7 @@ rho_mat <- as.data.frame(rho_mat)
 pval_mat <- as.data.frame(pval_mat)
 qval_mat <- as.data.frame(qval_mat)
 
+# Define the heatmap cell annotations and color scale
 make_cell_fun_spearman <- function(qmat, pmat){
 function(j,i,x,y,w,h,fill){
 qv <- qmat[i,j]
@@ -67,6 +71,7 @@ grid_width=unit(1.4,"mm"),
 legend_height=unit(20,"mm")
 )
 
+# Build the heatmap object and set figure dimensions
 hm_central <- Heatmap(
 as.matrix(rho_mat),
 name="Spearman Rho\n(P: * < 0.05, FDR: ** < 0.05)",
@@ -86,6 +91,7 @@ cell_fun=make_cell_fun_spearman(qval_mat, pval_mat)
 width_in <- (ncol(rho_mat)*CELL/10+6)/2.54
 height_in <- (nrow(rho_mat)*CELL/10+6)/2.54
 
+# Draw the heatmap and save the PDF
 pdf("Sfig8.pdf", width=width_in, height=height_in, family="Helvetica")
 
 draw(hm_central,
