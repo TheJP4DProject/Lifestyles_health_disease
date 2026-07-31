@@ -1,3 +1,5 @@
+# Build a Sankey diagram linking selected KO mediators to starch/sugar-rich food exposures
+# and disease outcomes, then export the network and source table.
 
 library(openxlsx)
 library(tidyverse)
@@ -56,7 +58,8 @@ sankeywidth  <- 900
 sankeyheight <- 300
 ######################
 
-causal <- read.xlsx("Supplementary Tables_260405.xlsx",
+# Read the mediation table and keep the target KOs and exposures
+causal <- read.xlsx("Supplementary Tables.xlsx",
                     sheet="S11KO",
                     check.names = F,
                     sep.names = " ")
@@ -88,6 +91,7 @@ causal$ExposureClass <- ordered_df[causal$Exposure, ]$annotation
 food <- unique(ordered_df$group)
 disease <- Disease_list$group
 
+# Construct the node table for exposures, KOs, and diseases
 nodes <- data.frame()
 
 temp_factor <- unique(ordered_df[ordered_df$group %in% causal$Exposure, ]$group)
@@ -123,6 +127,7 @@ temp_nodes <- data.frame(id = c(0:(length(temp_dis)-1) + nrow(nodes)),
                          group = ifelse(temp_dis == "General health", "Health", "Disease"))
 nodes <- rbind(nodes, temp_nodes)
 
+# Build the links between exposures, KOs, and diseases
 links <- data.frame()
 
 for (i in temp_factor) {
@@ -199,6 +204,7 @@ range_str <- paste0('["', paste(existing_colors, collapse='","'), '"]')
 
 my_color <- paste0('d3.scaleOrdinal().domain(', domain_str, ').range(', range_str, ')')
 
+# Draw the Sankey diagram and save the HTML and CSV outputs
 p <- sankeyNetwork(
   Links = links, Nodes = nodes,
   Source = "ids", Target = "idt",
