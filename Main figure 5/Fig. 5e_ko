@@ -1,3 +1,5 @@
+# Build a Sankey diagram linking physical activity exposures to KO mediators and disease outcomes,
+# then save the figure as a PDF.
 
 library(openxlsx)
 library(tidyverse)
@@ -57,7 +59,8 @@ Disease_list <- data.frame(
 sankeywidth <- 900
 sankeyheight <- 300
 
-causal <- read.xlsx("stable/Supplementary Tables_260405.xlsx",
+# Load the Sankey input table and keep the KO mediator entries
+causal <- read.xlsx("stable/Supplementary Tables.xlsx",
                     sheet="S10 MO",
                     check.names = F,
                     sep.names = " ")
@@ -94,6 +97,7 @@ condi <- "fig5E_ko"
 
 causal$ExposureClass <- ordered_df[causal$Exposure, ]$annotation
 
+# Define exposure, KO, and disease nodes for the network
 nodes <- data.frame()
 
 temp_factor <- unique(ordered_df[ordered_df$group %in% causal$Exposure, ]$group)
@@ -143,6 +147,7 @@ temp_nodes <- data.frame(
 
 nodes <- rbind(nodes, temp_nodes)
 
+# Create links from exposures to KOs and from KOs to disease outcomes
 links <- data.frame()
 
 for (i in temp_factor) {
@@ -244,6 +249,7 @@ range_str <- paste0('["', paste(existing_colors, collapse='","'), '"]')
 
 my_color <- paste0('d3.scaleOrdinal().domain(', domain_str, ').range(', range_str, ')')
 
+# Render the Sankey diagram and save the PDF
 p <- sankeyNetwork(
   Links = links,
   Nodes = nodes,
