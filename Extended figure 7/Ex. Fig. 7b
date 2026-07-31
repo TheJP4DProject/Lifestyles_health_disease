@@ -1,4 +1,7 @@
+# Build a combined heatmap of species-level mediation coefficients and
+# species-by-KO Spearman correlations, grouped by taxonomy and KO class.
 
+# Load the input tables and reshape species/KO results into matrices
 library(tidyverse)
 library(ComplexHeatmap)
 library(circlize)
@@ -52,7 +55,7 @@ c(rep("Milk", 2), rep("Starch", 4), "Health", rep("Disease", 4)),
 levels = c("Lifestyle", "Health", "Disease")
 )
 
-orent <- read.xlsx("../stable/Supplementary Tables_260405.xlsx",
+orent <- read.xlsx("../stable/Supplementary Tables.xlsx",
 sheet="S13DOriSPSCFACyto",
 check.names = F,
 sep.names = " ")
@@ -75,7 +78,7 @@ colnames(sp_raw)[2]="feature"
 colnames(sp_raw)[3]="metadata"
 sp_raw=sp_raw[sp_raw$metadata %in% lifestyle_treats,]
 
-ko_raw <- read.xlsx("../stable/Supplementary Tables_260405.xlsx",
+ko_raw <- read.xlsx("../stable/Supplementary Tables.xlsx",
 sheet="S7",
 check.names = F,
 sep.names = " ")
@@ -98,7 +101,7 @@ cols_use <- paste0(ko_vec, "_", suffix)
 
 miss_cols <- setdiff(cols_use, colnames(df))
 if(length(miss_cols) > 0){
-stop("缺少这些列: ", paste(miss_cols, collapse = ", "))
+stop("Missing columns:", paste(miss_cols, collapse = ", "))
 }
 
 mat <- df[, c(row_col, cols_use)] %>%
@@ -146,6 +149,7 @@ column_to_rownames("feature") %>%
 metas[metas %in% colnames(.)], drop = FALSE]
 }
 
+# Prepare species-level mediation matrices and matching annotations
 sp_coef <- make_wide(sp_raw, sp_all, meta_order, "coef")
 sp_pval <- make_wide(sp_raw, sp_all, meta_order, "pval")
 sp_qval <- make_wide(sp_raw, sp_all, meta_order, "FDR")
@@ -210,6 +214,7 @@ grid_width = unit(1.75,"mm")
 simple_anno_size = unit(1.5,"mm")
 )
 
+# Define colors, significance markers, and heatmap settings
 col_breaks_rho <- c(-0.5,-0.3,-0.1,0,0.1,0.3,0.5)
 col_fun_rho <- colorRamp2(col_breaks_rho,
 c("#1a3a5c","#2d6a9f","#a8c8e8","white","salmon1","salmon2","salmon3"))
@@ -265,6 +270,7 @@ background_gp = gpar(lwd=0.25))
 
 n_gaps_sp <- nlevels(col_split) - 1
 
+# Draw the combined heatmap and export the PDF
 hm_sp_maa <- Heatmap(
 as.matrix(sp_coef),
 name = "MAA Coefficient\n(FDR: * < 0.1)",
