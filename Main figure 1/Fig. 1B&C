@@ -1,3 +1,5 @@
+# Compare cytokine and metabolite abundances between health groups,
+# generate violin plots, and export summary tables.
 
 library(openxlsx)
 library(ggplot2)
@@ -5,6 +7,7 @@ library(dplyr)
 library(grid)
 library(gridExtra)
 
+# Load the input tables and define targets and plotting helpers
 INPUT_DIR <- "data"
 
 metadata <- read.csv(file.path(INPUT_DIR, "metadata.csv"), row.names = "ID")
@@ -140,6 +143,7 @@ plot_violin <- function(data_df, metadata_df, targets) {
   plot_list
 }
 
+# Build the violin plots for cytokines and metabolites
 plots_cytokine <- plot_violin(cytokine, metadata, target_cytokines)
 plots_metabo   <- plot_violin(metabo, metadata, target_metabos)
 
@@ -157,6 +161,7 @@ legend_grob <- grobTree(
            x = 0.28, y = 0.51, just = c(0, 0.5))
 )
 
+# Arrange the figure panels and export the combined plot.
 row1 <- arrangeGrob(grobs = plots_cytokine[1:4], ncol = 4)
 row2 <- arrangeGrob(grobs = c(plots_cytokine[5:7], list(legend_grob)), ncol = 4)
 row3 <- arrangeGrob(grobs = plots_metabo, ncol = 4)
@@ -165,6 +170,7 @@ pdf("output_figure.pdf", width = 2.5, height = 3)
 grid.arrange(row1, row2, row3, nrow = 3)
 dev.off()
 
+# Calculate summary statistics and write the output tables
 calc_summary <- function(data_df, metadata_df, targets) {
 
   targets_exist <- intersect(targets, colnames(data_df))
