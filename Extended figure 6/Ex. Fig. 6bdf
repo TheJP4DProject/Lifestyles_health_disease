@@ -26,8 +26,9 @@ key_names <- c("Natto","Pickles","Yogurt")
 
 plot_one_heatmap <- function(tr) {
 
+# Load the result table and prepare species, SCFA, and cytokine matrices
 sub_result <- read.xlsx(
-"Supplementary Tables_260405.xlsx",
+"Supplementary Tables.xlsx",
 sheet = "Sfig.6BDF_data",
 check.names = FALSE,
 sep.names = " "
@@ -122,6 +123,7 @@ col_sp <- colorRamp2(c(-0.1, 0, 0.1), c("#9BC4E2", "white", "#E68795"))
 col_metabo <- colorRamp2(c(-0.2, 0, 0.2), c("#2166AC", "#F7F7F7", "#B2182B"))
 col_cyto <- colorRamp2(c(-0.1, 0, 0.1), c("skyblue", "white", "pink"))
 
+# Filter significant species and format the heatmap inputs
 sp_show <- matrix("NS", nrow = nrow(sp_mat), ncol = ncol(sp_mat))
 rownames(sp_show) <- rownames(sp_mat)
 colnames(sp_show) <- colnames(sp_mat)
@@ -146,6 +148,7 @@ cyto_fdr <- cyto_fdr[keep_idx, , drop = FALSE]
 
 sp_col <- c("Negative"="#6FA8DC","NS"="white","Positive"="#D96B7B")
 
+# Make heatmaps
 hm_sp <- Heatmap(
 sp_show,
 name = "Starter\nassociation",
@@ -227,6 +230,7 @@ grid.text("", x, y, gp = gpar(fontsize = 5))
 }
 )
 
+# Draw the combined heatmap and export the PDF for each target exposure
 pdf(paste0("Sfig6_", tr, ".pdf"),
 family = "Helvetica",
 width = 6,
