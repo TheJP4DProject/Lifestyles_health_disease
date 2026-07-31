@@ -1,3 +1,6 @@
+# Predict log-odds scores in an external validation cohort, compare control versus disease groups,
+# and export violin plots with summary statistics.
+
 rm(list = ls())
 set.seed(100)
 
