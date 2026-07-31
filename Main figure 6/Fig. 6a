@@ -1,3 +1,6 @@
+# Compare predicted species scores between outcome groups,
+# summarize Wilcoxon tests and AUCs, and export a multi-panel violin plot with a results table.
+
 rm(list = ls())
 set.seed(100)
 
