@@ -1,3 +1,5 @@
+# Build a Sankey diagram linking selected Bifidobacterium species mediators to
+milk/yogurt exposures and disease outcomes, then export the network and source table.
 
 library(openxlsx)
 library(tidyverse)
@@ -45,7 +47,7 @@ Disease_list <- data.frame(
 sankeywidth <- 900
 sankeyheight <- 300
 
-causal <- read.xlsx("Supplementary Tables_260405.xlsx",
+causal <- read.xlsx("Supplementary Tables.xlsx",
                     sheet = "S9 MOTU",
                     check.names = FALSE)
 
@@ -61,7 +63,7 @@ sp_list <- c(
   "Bifidobacterium longum [ID:01099]"
 )
 
-# ID标准化
+# ID
 causal$Mediator <- gsub("\\[ID:(\\d+)\\]", "\\1", causal$Mediator)
 sp_list <- gsub("\\[ID:(\\d+)\\]", "\\1", sp_list)
 
