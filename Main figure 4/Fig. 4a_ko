@@ -1,3 +1,5 @@
+# Build a Sankey diagram linking the top KO mediators to selected lifestyle exposures and diseases,
+then export the network and source table.
 
 library(openxlsx)
 library(tidyverse)
