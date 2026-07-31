@@ -1,3 +1,6 @@
+# Create a combined heatmap showing alpha-diversity associations and 
+# beta-diversity R2 values, grouped by lifestyle and health/disease classes.
+
 rm(list = ls())
 set.seed(100)
 library(tidyverse)
