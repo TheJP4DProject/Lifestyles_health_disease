@@ -1,3 +1,6 @@
+# Create bubble plots for enriched KEGG pathways across selected lifestyle factors
+# and export the figure and source data.
+
 library(ggplot2)
 library(dplyr)
 library(ggrepel)
@@ -5,7 +8,8 @@ library(scales)
 library(gridExtra)
 library(openxlsx)
 
-df= read.xlsx("Supplementary Tables_260405.xlsx",
+# Load and filter the enrichment table for the target pathways
+df= read.xlsx("Supplementary Tables.xlsx",
 sheet="KEGGID_enrich_20260115_FDR01sel",
 check.names = F,
 sep.names = " ")
@@ -34,6 +38,7 @@ df_filtered_all <- df_filtered[df_filtered$FDR < 0.05, ]
 
 count_range <- range(df_filtered_all$Count, na.rm = TRUE)
 
+# Define the bubble-plot function and its styling
 plot_bubble <- function(data, title_text, count_range) {
 
 data$qvalue <- -log10(data$FDR)
@@ -105,6 +110,7 @@ theme(
 
 }
 
+# Build one plot per pathway and arrange them into a panel figure
 plot_list <- list()
 for (pathway in target_pathways) {
 data_subset <- df_filtered %>% filter(Description == pathway)
@@ -119,6 +125,7 @@ plot_list[[pathway]] <- plot
 num_plots <- length(plot_list)
 num_rows <- ceiling(num_plots / 3)
 
+# Save the PDF figure and the filtered source table
 pdf("Sfig7D.pdf", width = 8, height = num_rows * 1.8)
 
 do.call(grid.arrange, c(plot_list, ncol = 3))
