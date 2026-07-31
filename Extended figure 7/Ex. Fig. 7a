@@ -1,3 +1,5 @@
+# Build a species-by-KO Spearman correlation heatmap and export the figure as a PDF.
+
 library(tidyverse)
 library(ComplexHeatmap)
 library(circlize)
@@ -12,7 +14,8 @@ ko_labels <- c(
 "K00248" = "butyryl-CoA dehydrogenase K00248"
 )
 
-cor_sub <- read.xlsx("Supplementary Tables_260405.xlsx",
+# Load the correlation table and reshape it into matrices
+cor_sub <- read.xlsx("Supplementary Tables.xlsx",
 sheet="Sfig.7A_data",
 check.names = F,
 sep.names = " ")
@@ -57,6 +60,7 @@ colnames(mat_rho) <- ko_labels[colnames(mat_rho)]
 colnames(mat_p) <- ko_labels[colnames(mat_p)]
 colnames(mat_q) <- ko_labels[colnames(mat_q)]
 
+# Clean labels, set colors, and define significance markers
 col_fun_rho <- colorRamp2(
 c(-0.5,-0.3,-0.1,0,0.1,0.3,0.5),
 c("#1a3a5c","#2d6a9f","#a8c8e8","white","salmon1","salmon2","salmon3")
@@ -85,6 +89,7 @@ grid.text("*", x, y, gp=gpar(fontsize=5))
 }
 }
 
+# Draw the heatmap and save the PDF
 hm_main <- Heatmap(
 mat_rho,
 name = "*P < 0.05, **FDR < 0.05\nSpearman’s rho",
