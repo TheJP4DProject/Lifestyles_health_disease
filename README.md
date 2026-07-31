@@ -75,7 +75,7 @@ Researchers interested in accessing the underlying data may contact the correspo
 
 ---
 
-# Analysis workflow
+# Analytical workflow
 - Raw sequencing data + Metadata
 - Quality control
 - Taxonomic profiling
