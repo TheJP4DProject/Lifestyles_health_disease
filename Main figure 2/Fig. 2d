@@ -14,7 +14,6 @@ library(ggplot2)
 
 CAUSAL_FILE <- "data/causal_input.csv"
 BETA_R2_FILE <- "data/beta_r2.csv"
-
 OUTPUT_DIR <- "results/figures"
 
 dir.create(
