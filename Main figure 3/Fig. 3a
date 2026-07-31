@@ -1,3 +1,6 @@
+# Build a Sankey diagram linking top species mediators to lifestyle exposures and disease outcomes,
+# and export the network tables.
+
 library(openxlsx)
 library(dplyr)
 library(networkD3)
