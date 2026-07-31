@@ -1,3 +1,6 @@
+# Compare causal mediation coefficients for physical activity exposures versus sitting time,
+# highlight selected species, and export plots and source data.
+
 library(openxlsx)
 library(ComplexHeatmap)
 library(circlize)
@@ -10,7 +13,8 @@ library(ggtext)
 
 set.seed(123)
 
-causal <- read.xlsx("stable/Supplementary Tables_260405.xlsx",
+# Load the mediation and MAA tables, then define the exposures and highlights
+causal <- read.xlsx("stable/Supplementary Tables.xlsx",
 sheet="S9 MOTU",
 check.names = F,
 sep.names = " ")
@@ -44,6 +48,7 @@ highlight_map <- c(
 plot_list <- list()
 r <- NULL
 
+# Build the scatterplots for each physical activity exposure
 for (i in 1:(length(key) - 1)) {
 
 undo <- causal_sig %>%
@@ -127,6 +132,7 @@ size = 5 / ggplot2::.pt
 plot_list[[i]] <- p
 }
 
+# Draw the combined panel figure and save the PDF
 pdf("fig5d.pdf", width = 12, height = 2.2)
 grid.arrange(grobs = plot_list, ncol = 3)
 dev.off()
@@ -186,6 +192,7 @@ p = cor_test$p.value
 
 panel_stats$FDR <- p.adjust(panel_stats$p, method = "BH")
 
+# Collect source data and panel-wise statistics, then save the CSV
 source_df <- source_df %>%
 left_join(panel_stats, by = c("panel"))
 
