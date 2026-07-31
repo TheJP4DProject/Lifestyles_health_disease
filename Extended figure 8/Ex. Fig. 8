@@ -1,3 +1,5 @@
+# Compare cross-sectional and longitudinal associations, split the heatmap into panels, and export source data.
+
 library(ggplot2)
 library(dplyr)
 library(reshape2)
@@ -58,7 +60,8 @@ group = c("General health", "Inflammatory Bowel Disease (IBD)", "Irritable Bowel
 color = c("white", rep("black", 15))
 )
 
-data1 = read.xlsx("Supplementary Tables_260405.xlsx",
+# Read and align the cross-sectional and longitudinal tables
+data1 = read.xlsx("Supplementary Tables.xlsx",
 sheet="S6",
 check.names = F,
 sep.names = " ")
@@ -165,6 +168,7 @@ tt <- unique(ordered_df[, c("color", "annotation")])
 ttt <- unique(tt[, c("color", "annotation")])
 col_M <- setNames(ttt$color, ttt$annotation)
 
+# Build the first heatmap panel from the selected significant associations
 data_part1 <- original_data[1:check1, ]
 data_part1$oudan_meta <- factor(data_part1$oudan_meta, levels = unique(data_part1$oudan_meta))
 
@@ -272,6 +276,7 @@ cairo_pdf(file = paste0(tit, "_part1.pdf"), width = 16, height = 7, family = "He
 ht1 <- draw(hm_top_1 %v% hm_bottom_1, padding = unit(c(80, 2, 2, 2), "mm"))
 dev.off()
 
+# Build the second and third heatmap panels
 data_part2 <- original_data[(check1 + 1):check2, ]
 data_part2$oudan_meta <- factor(data_part2$oudan_meta, levels = unique(data_part2$oudan_meta))
 
@@ -375,6 +380,7 @@ cairo_pdf(file = paste0(tit, "_part2.pdf"), width = 16, height = 7, family = "He
 ht2 <- draw(hm_top_2 %v% hm_bottom_2, padding = unit(c(80, 2, 2, 2), "mm"))
 dev.off()
 
+# Build the third heatmap panel from the selected significant associations
 data_part3 <- original_data[(check2 + 1):nrow(original_data), ]
 data_part3$oudan_meta <- factor(data_part3$oudan_meta, levels = unique(data_part3$oudan_meta))
 
@@ -478,6 +484,7 @@ cairo_pdf(file = paste0(tit, "_part3.pdf"), width = 16, height = 7, family = "He
 ht3 <- draw(hm_top_3 %v% hm_bottom_3, padding = unit(c(80, 2, 2, 2), "mm"))
 dev.off()
 
+# Add FDR values and write the source-data table
 temp_full <- temp
 temp_full <- temp_full[, !duplicated(colnames(temp_full))]
 
