@@ -69,9 +69,11 @@ Major packages include:
 # Data availability
 The analysis scripts are publicly available in this repository.
 
-Individual-level microbiome sequencing data and participant metadata cannot be publicly released because of participant consent restrictions and institutional ethics regulations.
+The human metagenomic sequencing data from the Japanese 4D cohort (n = 6,803) have been deposited in the NCBI Sequence Read Archive (SRA) under accession numbers PRJNA1169537 (n = 654), PRJNA832909 (n = 104), and PRJNA1445561 (n = 6,017), and will be publicly available upon publication.
 
-Researchers interested in accessing the underlying data may contact the corresponding author to discuss data access under appropriate ethical approval and data-sharing agreements.
+Metagenomic data from external validation cohorts are publicly available from the respective original studies and can be accessed via the corresponding publications and associated repositories.
+
+Due to personal data protection laws and clinical research regulations in Japan, individual-level metadata from the Japanese 4D cohort are not publicly available. Data may be shared only through collaborative research upon mutual agreement and approval by both the institutional review board of our institution and that of the requesting institution, and only within the scope of the approved ethical permissions. Requests for collaborative research should be directed to the corresponding author.
 
 ---
 
