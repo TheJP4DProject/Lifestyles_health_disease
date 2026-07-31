@@ -1,8 +1,12 @@
+# Test enrichment of causal mediators among Lasso-selected species across diseases,
+# then export the forest plot and source tables.
+
 library(dplyr)
 library(ggplot2)
 
 setwd(".")
 
+# Load metadata and define outcome and disease-label mappings
 metadata <- as.data.frame(read.csv("meta.atc.filter.csv"))
 metadata <- metadata[!is.na(metadata$METAF), ]
 rownames(metadata) <- metadata$METAF
@@ -49,7 +53,8 @@ name_map <- c(
 "COPD" = "COPD"
 )
 
-causal_f <- read.csv("causal/6803_causal_motus_260328.csv")
+# Load causal mediation results and Lasso-selected features
+causal_f <- read.csv("causal/causal_motus.csv")
 
 causal_f <- causal_f[
 (causal_f$Avg_causal_mediation_qval < 0.05) &
@@ -79,6 +84,7 @@ all_candidates <- all_candidates[all_candidates != "(Intercept)"]
 outcome_names <- unique(features_sp$outcome)
 outcome_names <- outcome_names[outcome_names != "CKD"]
 
+# Build disease-wise enrichment statistics
 result_list <- list()
 
 for (dis in outcome_names) {
@@ -147,6 +153,7 @@ stringsAsFactors = FALSE
 )
 }
 
+# Assemble the result table and create the enrichment plot
 result_df <- bind_rows(result_list)
 
 result_df$Disease <- factor(
@@ -195,6 +202,7 @@ colnames(output_df) <- c(
 "p_value (Fisher)"
 )
 
+# Export the summary CSV and plot
 write.csv(output_df, "fig5d.csv", row.names = FALSE)
 
 cat("Saved: fig5d.csv\n")
@@ -257,6 +265,7 @@ height = 3
 
 cat("Saved: fig5d.pdf\n")
 
+# Save the final source data table
 source_df <- result_df %>%
 mutate(
 Disease = as.character(Disease),
