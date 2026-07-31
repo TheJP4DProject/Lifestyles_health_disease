@@ -1,6 +1,10 @@
+# Plot adjusted Spearman correlations across selected outcomes and exposures,
+# mark significance, and export the figure and source data.
+
 library(ggplot2)
 library(dplyr)
 
+# Load the data and define outcome labels and ordering
 df <- read.csv("fig6d_data.csv", check.names = FALSE, stringsAsFactors = FALSE)
 
 outcome_display_map <- c(
@@ -23,6 +27,7 @@ outcome_display_map <- c(
 "Chronic Obstructive Pulmonary Disease (COPD)" = "COPD"
 )
 
+# Filter to the selected outcomes and exposure groups, then compute FDR and significance labels
 df$outcome_display <- recode(df$outcome, !!!outcome_display_map)
 
 outcome_order <- c(
@@ -86,6 +91,7 @@ axis.line.x = element_blank(),
 panel.border = element_rect(color = "gray70", fill = NA)
 )
 
+# Build the first faceted correlation plot
 df_v1 <- df
 df_v1$metadata <- factor(df_v1$metadata, levels = rev(ordered_df_groups))
 df_v1$outcome_display <- factor(df_v1$outcome_display, levels = outcome_display_order)
@@ -131,6 +137,7 @@ ordered_df_groups <- c(
 "Sitting down ≥ 9.5h"
 )
 
+# Assemble and export the source data table
 ver1_sourcedata <- df_v1 %>%
 filter(outcome_display %in% outcome_display_order) %>%
 mutate(
