@@ -1,3 +1,6 @@
+# Build split heatmaps of Spearman correlations for metabolites and cytokines
+# across health and disease outcomes, then export the figure and source table.
+
 rm(list = ls())
 
 library(ComplexHeatmap)
@@ -9,6 +12,7 @@ library(openxlsx)
 
 par(family = "Helvetica")
 
+# Define helper functions for safe color scaling and outcome abbreviation
 safe_col_fun <- function(mat, low, mid, high) {
 rng <- range(mat, na.rm = TRUE)
 if (!is.finite(rng[1]) || rng[1] == rng[2]) {
@@ -25,8 +29,9 @@ TRUE ~ x
 )
 }
 
+# Load the heatmap source table and define feature and outcome order
 plot_df <- read.xlsx(
-"stable/Supplementary Tables_260405.xlsx",
+"stable/Supplementary Tables.xlsx",
 sheet = "Fig.6E_data",
 check.names = FALSE,
 sep.names = " "
@@ -61,6 +66,7 @@ arrange(Outcome)
 
 outcome_order_abbr <- extract_abbr(as.character(plot_df$Outcome))
 
+# Construct the correlation, p-value, and FDR matrices
 make_mat <- function(stat_suffix) {
 mat <- sapply(feature_order, function(feat) {
 plot_df[[paste0(feat, "_", stat_suffix)]]
@@ -149,6 +155,7 @@ grid.text("", x, y, vjust = 0.8)
 }
 )
 
+# Draw the metabolite and cytokine heatmaps and save the PDF
 pdf("fig6e.pdf", width = 6, height = 5)
 draw(hm_metabo %v% hm_cytokine)
 dev.off()
