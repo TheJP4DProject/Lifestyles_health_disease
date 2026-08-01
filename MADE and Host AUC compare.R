@@ -46,21 +46,68 @@ selected_features <- colnames(motu)[
   colMeans(motu > 0, na.rm = TRUE) > MIN_PREVALENCE
 ]
 
-clr_transform <- function(x) {
+motu_filtered <- motu[, selected_features, drop = FALSE]
+
+if (ncol(motu_filtered) > 0) {
+  motu_filtered <- motu_filtered[, -1, drop = FALSE]
+}
+
+clr_with_fixed_pseudocount <- function(x, pseudocount) {
   x <- as.matrix(x)
-  x[x == 0] <- min(x[x > 0], na.rm = TRUE) / 2
+  storage.mode(x) <- "double"
+
+  x[x == 0] <- pseudocount
+
   log_x <- log(x)
   sweep(log_x, 1, rowMeans(log_x), "-")
 }
 
-motu_clr <- clr_transform(motu)
-motu_clr <- motu_clr[, selected_features, drop = FALSE]
+preprocess_motu_train_test <- function(train, test) {
+  train <- as.matrix(train)
+  test <- as.matrix(test)
 
-if (ncol(motu_clr) > 0) {
-  motu_clr <- motu_clr[, -1, drop = FALSE]
+  storage.mode(train) <- "double"
+  storage.mode(test) <- "double"
+
+  train_positive <- train[
+    is.finite(train) & train > 0
+  ]
+
+  if (length(train_positive) == 0) {
+    stop("No positive microbial value in the outer training fold.")
+  }
+
+  pseudocount <- min(train_positive, na.rm = TRUE) / 2
+
+  train_clr <- clr_with_fixed_pseudocount(
+    train,
+    pseudocount
+  )
+
+  test_clr <- clr_with_fixed_pseudocount(
+    test,
+    pseudocount
+  )
+
+  center <- colMeans(train_clr)
+  scale_value <- apply(train_clr, 2, sd)
+  scale_value[is.na(scale_value) | scale_value == 0] <- 1
+
+  list(
+    train = sweep(
+      sweep(train_clr, 2, center, "-"),
+      2,
+      scale_value,
+      "/"
+    ),
+    test = sweep(
+      sweep(test_clr, 2, center, "-"),
+      2,
+      scale_value,
+      "/"
+    )
+  )
 }
-
-X_made <- scale(motu_clr)
 
 host_complete <- complete.cases(
   metadata[, host_variables, drop = FALSE]
@@ -176,7 +223,7 @@ run_outcome <- function(outcome) {
 
   sample_ids <- rownames(metadata)[
     !is.na(y_all) &
-      complete.cases(X_made)
+      complete.cases(motu_filtered)
   ]
 
   y <- y_all[sample_ids]
@@ -198,8 +245,25 @@ run_outcome <- function(outcome) {
     y_train <- y[train_ids]
     y_test <- y[test_ids]
 
-    x_train_made <- X_made[train_ids, , drop = FALSE]
-    x_test_made <- X_made[test_ids, , drop = FALSE]
+    x_train_made_raw <- motu_filtered[
+      train_ids,
+      ,
+      drop = FALSE
+    ]
+
+    x_test_made_raw <- motu_filtered[
+      test_ids,
+      ,
+      drop = FALSE
+    ]
+
+    made_preprocessed <- preprocess_motu_train_test(
+      x_train_made_raw,
+      x_test_made_raw
+    )
+
+    x_train_made <- made_preprocessed$train
+    x_test_made <- made_preprocessed$test
 
     inner_k <- min(
       INNER_FOLDS,
