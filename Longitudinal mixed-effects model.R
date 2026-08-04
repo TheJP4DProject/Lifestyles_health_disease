@@ -14,6 +14,7 @@ REFERENCE_ABUNDANCE_FILE <- "data/reference_motu_abundance.xlsx"
 REFERENCE_METADATA_FILE <- "data/reference_metadata.csv"
 OUTPUT_DIR <- "results/longitudinal_analysis"
 
+
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 metadata <- read.xlsx(METADATA_FILE)
 
