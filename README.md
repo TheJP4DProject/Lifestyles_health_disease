@@ -88,14 +88,15 @@ Detailed analytical procedures, including data preprocessing, statistical modeli
 # Expected outputs
 The scripts generate statistical results and/or graphical outputs corresponding to the analyses described in the manuscript.
 Depending on the analysis, expected outputs include:
-●	alpha- and beta-diversity results
-●	cross-sectional association results
-●	causal mediation analysis results
-●	longitudinal analysis results
-●	correlation analysis results
-●	functional enrichment results
-●	LASSO-based MADE score construction and validation results
-●	main and Extended Data figure components
+- alpha- and beta-diversity results
+- cross-sectional association results
+- causal mediation analysis results
+- longitudinal analysis results
+- correlation analysis results
+- functional enrichment results
+- LASSO-based MADE score construction and validation results
+- main and Extended Data figure components
+
 Runtime depends on the analysis and the size of the input dataset. Analyses involving large metagenomic datasets or computationally intensive procedures, such as nested cross-validation, may require longer runtimes than standard statistical or plotting procedures.
 
 ---
