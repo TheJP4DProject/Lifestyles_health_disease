@@ -1,4 +1,4 @@
-<img width="442" height="34" alt="image" src="https://github.com/user-attachments/assets/976bd875-f4b6-4a48-a3c6-00342f029f68" /># TheJP4DProject
+# TheJP4DProject
 
 This repository contains the R scripts used for the analyses presented in the manuscript:
 Opposing microbiome-mediated axes link modifiable lifestyles to health and chronic diseases
