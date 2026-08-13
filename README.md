@@ -1,4 +1,4 @@
-# TheJP4DProject
+<img width="442" height="34" alt="image" src="https://github.com/user-attachments/assets/976bd875-f4b6-4a48-a3c6-00342f029f68" /># TheJP4DProject
 
 This repository contains the R scripts used for the analyses presented in the manuscript:
 Opposing microbiome-mediated axes link modifiable lifestyles to health and chronic diseases
@@ -25,6 +25,7 @@ Scripts used for the Extended Data figures are organized into:
 - Extended figure 7/
 - Extended figure 8/
 - Extended figure 9/
+- Extended figure 10/
 
 ## Shared analysis scripts
 The following scripts are used across multiple analyses.
@@ -52,8 +53,9 @@ Typical input files include:
 
 ---
 
-# Software requirements
-Analyses were performed using **R (version 4.3 or later)**.
+# System requirements
+Analyses were performed using **R (version 4.3 or later)** and were developed and tested on macOS [26.5.2].
+
 Major packages include:
 - MaAsLin2
 - mediation
@@ -63,6 +65,48 @@ Major packages include:
 - ComplexHeatmap
 - pROC
 - vegan
+
+No non-standard hardware is required to run the analysis scripts. Computing time and memory requirements vary depending on the analysis and the size of the input dataset.
+
+---
+
+# Installation guide
+No standalone software installation is required.
+Users should install R (version 4.3 or later) and the R packages required by the corresponding analysis scripts. Required packages can be installed from CRAN or Bioconductor, as appropriate.
+The analysis scripts can then be downloaded or cloned from this GitHub repository and run in an R environment.
+Installation time depends on the computing environment and the packages already installed.
+
+---
+
+# Running the analyses
+Each analysis is provided as an independent R script. Figure-specific scripts are organized in the corresponding Main figure and Extended figure directories, and commonly used statistical analyses are provided as shared analysis scripts.
+Before running each script, users should specify the local paths to the required input files and output directories where necessary.
+Detailed analytical procedures, including data preprocessing, statistical modeling, validation procedures, and figure generation, are implemented in the corresponding R scripts.
+
+---
+
+# Expected outputs
+The scripts generate statistical results and/or graphical outputs corresponding to the analyses described in the manuscript.
+Depending on the analysis, expected outputs include:
+●	alpha- and beta-diversity results
+●	cross-sectional association results
+●	causal mediation analysis results
+●	longitudinal analysis results
+●	correlation analysis results
+●	functional enrichment results
+●	LASSO-based MADE score construction and validation results
+●	main and Extended Data figure components
+Runtime depends on the analysis and the size of the input dataset. Analyses involving large metagenomic datasets or computationally intensive procedures, such as nested cross-validation, may require longer runtimes than standard statistical or plotting procedures.
+
+---
+
+# Demo data
+A participant-level demonstration dataset is not provided because individual-level metadata from the Japanese 4D cohort cannot be publicly released owing to ethical and privacy restrictions.
+ 
+Instructions for use
+To apply the scripts to other datasets, users should prepare input data with variables and data structures corresponding to those described in the Input files section and specify the appropriate local input paths in each R script.
+Users may need to modify file paths, variable names, or metadata column names to match their own datasets.
+The corresponding R scripts contain the detailed preprocessing, statistical analysis, and output-generation procedures used for each analysis.
 
 ---
 
@@ -92,8 +136,9 @@ Due to personal data protection laws and clinical research regulations in Japan,
 
 # Reproducibility
 
-Each figure can be reproduced using the corresponding figure-specific scripts.
-Common statistical procedures are provided as independent shared scripts to improve transparency and reproducibility.
+Scripts corresponding to the analyses presented in the manuscript are organized by main and Extended Data figures. Common statistical procedures are also provided as independent shared scripts to improve transparency and reproducibility.
+The repository provides the analysis code used to generate the quantitative results and figures reported in the manuscript.
+Complete reproduction of analyses requiring individual-level Japanese 4D metadata is not possible from the public repository alone because these data cannot be publicly released under applicable ethical approvals and privacy regulations. Access to individual-level metadata is subject to the data-sharing procedures described in the Data availability section.
 
 ---
 
@@ -117,4 +162,3 @@ Opposing microbiome-mediated axes link modifiable lifestyles to health and chron
 Naoyoshi Nagata, MD, PhD
 Tokyo Medical University
 Email: nnagata_ncgm@yahoo.co.jp
-
