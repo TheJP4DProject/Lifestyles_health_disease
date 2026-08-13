@@ -35,12 +35,16 @@ The following scripts are used across multiple analyses.
 | AlphaIndex.R | Alpha-diversity analysis |
 | BetaR2.R | Beta-diversity (PERMANOVA/R²) analysis |
 | Causal Mediation Analysis.R | Causal mediation analysis |
+| Causal Mediation Subsample analysis.R | Causal mediation analysis with the same number of cases |
+| Causal Mediation sensitivity analysis.R | Causal mediation analysis with different sets of adjustment factors |
 | Cytokine correlation_Spearman.R | Correlation analysis with plasma cytokines |
-| SCFA correlation_Spearman.R | Correlation analysis with fecal short-chain fatty acids |
 | KEGG_Enrichment_analysis.R | Functional enrichment analysis |
 | Lifestyle correlation_Spearman.R | Spearman correlation analysis among lifestyle factors |
+| Longitudinal mixed-effects model.R | Longitudinal analysis of microbial features |
+| MADE and Host AUC compare.R | Comparison of MADE and Host model AUCs |
 | MADE score_LASSO.R | Construction and validation of the MADE score |
 | MaAsLin2.R | Cross-sectional association analysis using MaAsLin2 |
+| SCFA correlation_Spearman.R | Correlation analysis with fecal short-chain fatty acids |
 
 ---
 
