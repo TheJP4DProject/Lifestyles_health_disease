@@ -50,7 +50,7 @@ causal <- read.csv(
 causal <- causal %>%
   filter(
     Avg_causal_mediation_qval < 0.05,
-    Inv_Avg_causal_mediation_pval > 0.05
+    Inv_Avg_causal_mediation_pval >= 0.05
   )
 
 # ============================================================
