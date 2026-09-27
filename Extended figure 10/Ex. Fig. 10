@@ -6,11 +6,11 @@
 #   MADE model
 #   MADE & Host model
 #
-# Bar height:
-#   pooled out-of-fold test AUC
+# Points:
+#   test AUC from each of the 10 cross-validation folds
 #
-# Error bars:
-#   95% CI calculated from the 10 fold-level test AUC values
+# Horizontal line:
+#   pooled out-of-fold test AUC
 #
 # Statistical comparison:
 #   paired DeLong test
@@ -63,7 +63,7 @@ MODEL_COLORS <- c(
 )
 
 # ============================================================
-# Disease order and plot labels
+# Disease order
 # ============================================================
 
 DISEASE_ORDER <- c(
@@ -101,10 +101,8 @@ delong_data <- read.csv(
   stringsAsFactors = FALSE
 )
 
-# Input disease names are assumed to already match DISEASE_ORDER.
-
 # ============================================================
-# Calculate 95% CI from fold-level test AUC values
+# Identify fold-level test AUC columns
 # ============================================================
 
 fold_test_columns <- grep(
@@ -125,78 +123,8 @@ fold_test_columns <- fold_test_columns[
   )
 ]
 
-calculate_fold_ci <- function(x) {
-
-  x <- as.numeric(x)
-  x <- x[is.finite(x)]
-
-  n <- length(x)
-
-  if (n < 2) {
-    return(
-      c(
-        CI_low = NA_real_,
-        CI_high = NA_real_
-      )
-    )
-  }
-
-  mean_auc <- mean(x)
-  se_auc <- sd(x) / sqrt(n)
-
-  critical_value <- qt(
-    0.975,
-    df = n - 1
-  )
-
-  c(
-    CI_low = max(
-      0.5,
-      mean_auc - critical_value * se_auc
-    ),
-    CI_high = min(
-      1,
-      mean_auc + critical_value * se_auc
-    )
-  )
-}
-
-fold_ci <- t(
-  apply(
-    auc_data[
-      ,
-      fold_test_columns,
-      drop = FALSE
-    ],
-    1,
-    calculate_fold_ci
-  )
-)
-
-auc_data$CI_low <- fold_ci[, "CI_low"]
-auc_data$CI_high <- fold_ci[, "CI_high"]
-
-# Ensure pooled AUC is inside the displayed interval
-auc_data$CI_low <- ifelse(
-  is.na(auc_data$CI_low),
-  auc_data$pooled_test_auc,
-  pmin(
-    auc_data$CI_low,
-    auc_data$pooled_test_auc
-  )
-)
-
-auc_data$CI_high <- ifelse(
-  is.na(auc_data$CI_high),
-  auc_data$pooled_test_auc,
-  pmax(
-    auc_data$CI_high,
-    auc_data$pooled_test_auc
-  )
-)
-
 # ============================================================
-# Prepare AUC plotting data
+# Prepare pooled AUC plotting data
 # ============================================================
 
 plot_data <- auc_data %>%
@@ -234,6 +162,70 @@ plot_data <- auc_data %>%
   arrange(
     Disease,
     Model
+  )
+
+# ============================================================
+# Prepare fold-level test AUC points
+# ============================================================
+
+fold_point_data <- auc_data %>%
+  filter(
+    model %in% names(MODEL_LABELS),
+    tolower(status) %in% c(
+      "success",
+      "ok"
+    )
+  ) %>%
+  select(
+    outcome,
+    model,
+    all_of(
+      fold_test_columns
+    )
+  ) %>%
+  pivot_longer(
+    cols = all_of(
+      fold_test_columns
+    ),
+    names_to = "fold",
+    values_to = "fold_test_auc"
+  ) %>%
+  mutate(
+    Model = unname(
+      MODEL_LABELS[model]
+    ),
+
+    Model = factor(
+      Model,
+      levels = MODEL_ORDER
+    ),
+
+    Disease = factor(
+      outcome,
+      levels = DISEASE_ORDER
+    ),
+
+    x_position = as.numeric(
+      Model
+    ),
+
+    fold = as.integer(
+      sub(
+        "^fold([0-9]+)_test_auc$",
+        "\\1",
+        fold
+      )
+    )
+  ) %>%
+  filter(
+    is.finite(
+      fold_test_auc
+    )
+  ) %>%
+  arrange(
+    Disease,
+    Model,
+    fold
   )
 
 # ============================================================
@@ -349,38 +341,58 @@ p <- ggplot(
   )
 ) +
 
-  geom_col(
+  # Fold-level test AUC values
+  geom_point(
+    data = fold_point_data,
     aes(
+      x = x_position,
+      y = fold_test_auc,
       fill = Model
     ),
-    width = 0.4,
+    inherit.aes = FALSE,
+    shape = 21,
+    size = 0.4,
+    stroke = 0.18,
     color = "black",
-    linewidth = 0.15
+    alpha = 0.8,
+    position = position_jitter(
+      width = 0.08,
+      height = 0,
+      seed = 1
+    )
   ) +
 
-  geom_errorbar(
+  # Pooled out-of-fold test AUC
+  geom_segment(
     aes(
-      ymin = CI_low,
-      ymax = CI_high
+      x = x_position - 0.16,
+      xend = x_position + 0.16,
+      y = pooled_test_auc,
+      yend = pooled_test_auc
     ),
-    width = 0.16,
-    linewidth = 0.15
+    linewidth = 0.45,
+    color = "black",
+    lineend = "butt"
   ) +
 
+  # Pooled AUC value
   geom_text(
     aes(
+      y = pooled_test_auc + 0.015,
       label = AUC_label
     ),
     vjust = -0.35,
     size = 1.35
   ) +
 
+  # Random-performance reference
   geom_hline(
     yintercept = 0.5,
     linetype = "dashed",
     linewidth = 0.15
   ) +
 
+  # DeLong brackets
   geom_segment(
     data = bracket_data,
     aes(
@@ -566,9 +578,7 @@ auc_output <- plot_data %>%
     Model = as.character(
       Model
     ),
-    Pooled_test_AUC = pooled_test_auc,
-    CI_low,
-    CI_high
+    Pooled_test_AUC = pooled_test_auc
   )
 
 delong_output <- bracket_data %>%
